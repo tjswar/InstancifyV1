@@ -1,0 +1,958 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		B74601B42D462745005068C4 /* InstancifyWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B746FF572D45F7B3005068C4 /* InstancifyWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B74601BA2D46BC9B005068C4 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B746FF592D45F7B3005068C4 /* WidgetKit.framework */; };
+		B74601BB2D46BC9B005068C4 /* WidgetKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B746FF592D45F7B3005068C4 /* WidgetKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		B74602CC2D46C101005068C4 /* WidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74602CB2D46C101005068C4 /* WidgetData.swift */; };
+		B74602CD2D46C101005068C4 /* InstancifyWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74602CA2D46C101005068C4 /* InstancifyWidgets.swift */; };
+		B74602CF2D46C92A005068C4 /* InstancifyWidget.intentdefinition in Sources */ = {isa = PBXBuildFile; fileRef = B74602CE2D46C92A005068C4 /* InstancifyWidget.intentdefinition */; };
+		B74602D02D46C92A005068C4 /* InstancifyWidget.intentdefinition in Sources */ = {isa = PBXBuildFile; fileRef = B74602CE2D46C92A005068C4 /* InstancifyWidget.intentdefinition */; };
+		B746FF5C2D45F7B4005068C4 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B746FF5B2D45F7B4005068C4 /* SwiftUI.framework */; };
+		B77EAD9A2D5617A200758D05 /* JWTKit in Frameworks */ = {isa = PBXBuildFile; productRef = B77EAD992D5617A200758D05 /* JWTKit */; };
+		B7EE084E2D54669B006BF2A7 /* KeychainAccess in Frameworks */ = {isa = PBXBuildFile; productRef = B7EE084D2D54669B006BF2A7 /* KeychainAccess */; };
+		B7EE08502D5466A9006BF2A7 /* KeychainAccess in Frameworks */ = {isa = PBXBuildFile; productRef = B7EE084F2D5466A9006BF2A7 /* KeychainAccess */; };
+		B7EE08532D5466D0006BF2A7 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = B7EE08522D5466D0006BF2A7 /* FirebaseAnalytics */; };
+		B7EE08552D5466D0006BF2A7 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = B7EE08542D5466D0006BF2A7 /* FirebaseCore */; };
+		B7EE08572D5466D0006BF2A7 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = B7EE08562D5466D0006BF2A7 /* FirebaseMessaging */; };
+		B7EE085A2D546720006BF2A7 /* AWSAuthUI in Frameworks */ = {isa = PBXBuildFile; productRef = B7EE08592D546720006BF2A7 /* AWSAuthUI */; };
+		B7EE085C2D546720006BF2A7 /* AWSCloudWatch in Frameworks */ = {isa = PBXBuildFile; productRef = B7EE085B2D546720006BF2A7 /* AWSCloudWatch */; };
+		B7EE085E2D546720006BF2A7 /* AWSDynamoDB in Frameworks */ = {isa = PBXBuildFile; productRef = B7EE085D2D546720006BF2A7 /* AWSDynamoDB */; };
+		B7EE08602D546720006BF2A7 /* AWSEC2 in Frameworks */ = {isa = PBXBuildFile; productRef = B7EE085F2D546720006BF2A7 /* AWSEC2 */; };
+		B7EE08622D546720006BF2A7 /* AWSS3 in Frameworks */ = {isa = PBXBuildFile; productRef = B7EE08612D546720006BF2A7 /* AWSS3 */; };
+		B7EE08652D546770006BF2A7 /* SharedConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7EE08642D546760006BF2A7 /* SharedConfig.swift */; };
+		B7EE08662D546770006BF2A7 /* SharedConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7EE08642D546760006BF2A7 /* SharedConfig.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		B74601B52D462745005068C4 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B746FBFD2D45EEF2005068C4 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B746FF562D45F7B3005068C4;
+			remoteInfo = InstancifyWidgetsExtension;
+		};
+		B74601B82D462750005068C4 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B746FBFD2D45EEF2005068C4 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B746FF562D45F7B3005068C4;
+			remoteInfo = InstancifyWidgetsExtension;
+		};
+		B746FC162D45EEF4005068C4 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B746FBFD2D45EEF2005068C4 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B746FC042D45EEF2005068C4;
+			remoteInfo = Instancify;
+		};
+		B746FC202D45EEF4005068C4 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B746FBFD2D45EEF2005068C4 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B746FC042D45EEF2005068C4;
+			remoteInfo = Instancify;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		B74601B72D462745005068C4 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				B74601B42D462745005068C4 /* InstancifyWidgetsExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B74601BC2D46BC9B005068C4 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				B74601BB2D46BC9B005068C4 /* WidgetKit.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		B74601B32D462532005068C4 /* InstancifyWidgetsExtension-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "InstancifyWidgetsExtension-Bridging-Header.h"; sourceTree = "<group>"; };
+		B74602CA2D46C101005068C4 /* InstancifyWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = InstancifyWidgets.swift; path = InstancifyWidgetsExtension/InstancifyWidgets.swift; sourceTree = "<group>"; };
+		B74602CB2D46C101005068C4 /* WidgetData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WidgetData.swift; path = InstancifyWidgetsExtension/WidgetData.swift; sourceTree = "<group>"; };
+		B74602CE2D46C92A005068C4 /* InstancifyWidget.intentdefinition */ = {isa = PBXFileReference; lastKnownFileType = file.intentdefinition; path = InstancifyWidget.intentdefinition; sourceTree = "<group>"; };
+		B746FC052D45EEF2005068C4 /* Instancify.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Instancify.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B746FC152D45EEF4005068C4 /* InstancifyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = InstancifyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B746FC1F2D45EEF4005068C4 /* InstancifyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = InstancifyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B746FF572D45F7B3005068C4 /* InstancifyWidgetsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = InstancifyWidgetsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B746FF592D45F7B3005068C4 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		B746FF5B2D45F7B4005068C4 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		B746FF712D45F959005068C4 /* InstancifyWidgetsExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = InstancifyWidgetsExtension.entitlements; sourceTree = "<group>"; };
+		B7EE08642D546760006BF2A7 /* SharedConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedConfig.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		B746019C2D460165005068C4 /* Exceptions for "Instancify" folder in "Instancify" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = B746FC042D45EEF2005068C4 /* Instancify */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		B746FC072D45EEF2005068C4 /* Instancify */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				B746019C2D460165005068C4 /* Exceptions for "Instancify" folder in "Instancify" target */,
+			);
+			path = Instancify;
+			sourceTree = "<group>";
+		};
+		B746FC182D45EEF4005068C4 /* InstancifyTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = InstancifyTests;
+			sourceTree = "<group>";
+		};
+		B746FC222D45EEF4005068C4 /* InstancifyUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = InstancifyUITests;
+			sourceTree = "<group>";
+		};
+		B746FF5D2D45F7B4005068C4 /* InstancifyWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = InstancifyWidgets;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		B746FC022D45EEF2005068C4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B7EE085C2D546720006BF2A7 /* AWSCloudWatch in Frameworks */,
+				B7EE08572D5466D0006BF2A7 /* FirebaseMessaging in Frameworks */,
+				B7EE085E2D546720006BF2A7 /* AWSDynamoDB in Frameworks */,
+				B7EE08622D546720006BF2A7 /* AWSS3 in Frameworks */,
+				B7EE08602D546720006BF2A7 /* AWSEC2 in Frameworks */,
+				B77EAD9A2D5617A200758D05 /* JWTKit in Frameworks */,
+				B7EE08532D5466D0006BF2A7 /* FirebaseAnalytics in Frameworks */,
+				B7EE08552D5466D0006BF2A7 /* FirebaseCore in Frameworks */,
+				B7EE084E2D54669B006BF2A7 /* KeychainAccess in Frameworks */,
+				B7EE085A2D546720006BF2A7 /* AWSAuthUI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B746FC122D45EEF4005068C4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B746FC1C2D45EEF4005068C4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B746FF542D45F7B3005068C4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B746FF5C2D45F7B4005068C4 /* SwiftUI.framework in Frameworks */,
+				B74601BA2D46BC9B005068C4 /* WidgetKit.framework in Frameworks */,
+				B7EE08502D5466A9006BF2A7 /* KeychainAccess in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		4D8E7E56EB325D2FC4843096 /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Pods;
+			sourceTree = "<group>";
+		};
+		B746FBFC2D45EEF2005068C4 = {
+			isa = PBXGroup;
+			children = (
+				B746FF712D45F959005068C4 /* InstancifyWidgetsExtension.entitlements */,
+				B74602CE2D46C92A005068C4 /* InstancifyWidget.intentdefinition */,
+				B74602CA2D46C101005068C4 /* InstancifyWidgets.swift */,
+				B74602CB2D46C101005068C4 /* WidgetData.swift */,
+				B746FC072D45EEF2005068C4 /* Instancify */,
+				B746FC182D45EEF4005068C4 /* InstancifyTests */,
+				B746FC222D45EEF4005068C4 /* InstancifyUITests */,
+				B746FF5D2D45F7B4005068C4 /* InstancifyWidgets */,
+				B746FF582D45F7B3005068C4 /* Frameworks */,
+				B746FC062D45EEF2005068C4 /* Products */,
+				B74601B32D462532005068C4 /* InstancifyWidgetsExtension-Bridging-Header.h */,
+				4D8E7E56EB325D2FC4843096 /* Pods */,
+				B7EE08632D546750006BF2A7 /* Instancify/Shared */,
+			);
+			sourceTree = "<group>";
+		};
+		B746FC062D45EEF2005068C4 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				B746FC052D45EEF2005068C4 /* Instancify.app */,
+				B746FC152D45EEF4005068C4 /* InstancifyTests.xctest */,
+				B746FC1F2D45EEF4005068C4 /* InstancifyUITests.xctest */,
+				B746FF572D45F7B3005068C4 /* InstancifyWidgetsExtension.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		B746FF582D45F7B3005068C4 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				B746FF592D45F7B3005068C4 /* WidgetKit.framework */,
+				B746FF5B2D45F7B4005068C4 /* SwiftUI.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		B7EE08632D546750006BF2A7 /* Instancify/Shared */ = {
+			isa = PBXGroup;
+			children = (
+				B7EE08642D546760006BF2A7 /* SharedConfig.swift */,
+			);
+			path = Instancify/Shared;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		B746FC042D45EEF2005068C4 /* Instancify */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B746FC292D45EEF4005068C4 /* Build configuration list for PBXNativeTarget "Instancify" */;
+			buildPhases = (
+				B746FC012D45EEF2005068C4 /* Sources */,
+				B746FC022D45EEF2005068C4 /* Frameworks */,
+				B746FC032D45EEF2005068C4 /* Resources */,
+				B74601B72D462745005068C4 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B74601B62D462745005068C4 /* PBXTargetDependency */,
+				B74601B92D462750005068C4 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				B746FC072D45EEF2005068C4 /* Instancify */,
+			);
+			name = Instancify;
+			packageProductDependencies = (
+				B7EE084D2D54669B006BF2A7 /* KeychainAccess */,
+				B7EE08522D5466D0006BF2A7 /* FirebaseAnalytics */,
+				B7EE08542D5466D0006BF2A7 /* FirebaseCore */,
+				B7EE08562D5466D0006BF2A7 /* FirebaseMessaging */,
+				B7EE08592D546720006BF2A7 /* AWSAuthUI */,
+				B7EE085B2D546720006BF2A7 /* AWSCloudWatch */,
+				B7EE085D2D546720006BF2A7 /* AWSDynamoDB */,
+				B7EE085F2D546720006BF2A7 /* AWSEC2 */,
+				B7EE08612D546720006BF2A7 /* AWSS3 */,
+				B77EAD992D5617A200758D05 /* JWTKit */,
+			);
+			productName = Instancify;
+			productReference = B746FC052D45EEF2005068C4 /* Instancify.app */;
+			productType = "com.apple.product-type.application";
+		};
+		B746FC142D45EEF4005068C4 /* InstancifyTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B746FC2C2D45EEF4005068C4 /* Build configuration list for PBXNativeTarget "InstancifyTests" */;
+			buildPhases = (
+				B746FC112D45EEF4005068C4 /* Sources */,
+				B746FC122D45EEF4005068C4 /* Frameworks */,
+				B746FC132D45EEF4005068C4 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B746FC172D45EEF4005068C4 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				B746FC182D45EEF4005068C4 /* InstancifyTests */,
+			);
+			name = InstancifyTests;
+			productName = InstancifyTests;
+			productReference = B746FC152D45EEF4005068C4 /* InstancifyTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		B746FC1E2D45EEF4005068C4 /* InstancifyUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B746FC2F2D45EEF4005068C4 /* Build configuration list for PBXNativeTarget "InstancifyUITests" */;
+			buildPhases = (
+				B746FC1B2D45EEF4005068C4 /* Sources */,
+				B746FC1C2D45EEF4005068C4 /* Frameworks */,
+				B746FC1D2D45EEF4005068C4 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B746FC212D45EEF4005068C4 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				B746FC222D45EEF4005068C4 /* InstancifyUITests */,
+			);
+			name = InstancifyUITests;
+			productName = InstancifyUITests;
+			productReference = B746FC1F2D45EEF4005068C4 /* InstancifyUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		B746FF562D45F7B3005068C4 /* InstancifyWidgetsExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B746FF6C2D45F7B5005068C4 /* Build configuration list for PBXNativeTarget "InstancifyWidgetsExtension" */;
+			buildPhases = (
+				B746FF532D45F7B3005068C4 /* Sources */,
+				B746FF542D45F7B3005068C4 /* Frameworks */,
+				B746FF552D45F7B3005068C4 /* Resources */,
+				B74601BC2D46BC9B005068C4 /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				B746FF5D2D45F7B4005068C4 /* InstancifyWidgets */,
+			);
+			name = InstancifyWidgetsExtension;
+			packageProductDependencies = (
+				B7EE084F2D5466A9006BF2A7 /* KeychainAccess */,
+			);
+			productName = InstancifyWidgetsExtension;
+			productReference = B746FF572D45F7B3005068C4 /* InstancifyWidgetsExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		B746FBFD2D45EEF2005068C4 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1620;
+				LastUpgradeCheck = 1620;
+				TargetAttributes = {
+					B746FC042D45EEF2005068C4 = {
+						CreatedOnToolsVersion = 16.2;
+					};
+					B746FC142D45EEF4005068C4 = {
+						CreatedOnToolsVersion = 16.2;
+						TestTargetID = B746FC042D45EEF2005068C4;
+					};
+					B746FC1E2D45EEF4005068C4 = {
+						CreatedOnToolsVersion = 16.2;
+						TestTargetID = B746FC042D45EEF2005068C4;
+					};
+					B746FF562D45F7B3005068C4 = {
+						CreatedOnToolsVersion = 16.2;
+						LastSwiftMigration = 1620;
+					};
+				};
+			};
+			buildConfigurationList = B746FC002D45EEF2005068C4 /* Build configuration list for PBXProject "Instancify" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = B746FBFC2D45EEF2005068C4;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				B7EE084C2D54669B006BF2A7 /* XCRemoteSwiftPackageReference "KeychainAccess" */,
+				B7EE08512D5466D0006BF2A7 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				B7EE08582D546720006BF2A7 /* XCRemoteSwiftPackageReference "aws-sdk-ios-spm" */,
+				B77EAD982D5617A200758D05 /* XCRemoteSwiftPackageReference "jwt-kit" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = B746FC062D45EEF2005068C4 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				B746FC042D45EEF2005068C4 /* Instancify */,
+				B746FC142D45EEF4005068C4 /* InstancifyTests */,
+				B746FC1E2D45EEF4005068C4 /* InstancifyUITests */,
+				B746FF562D45F7B3005068C4 /* InstancifyWidgetsExtension */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		B746FC032D45EEF2005068C4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B746FC132D45EEF4005068C4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B746FC1D2D45EEF4005068C4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B746FF552D45F7B3005068C4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		B746FC012D45EEF2005068C4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B7EE08652D546770006BF2A7 /* SharedConfig.swift in Sources */,
+				B74602D02D46C92A005068C4 /* InstancifyWidget.intentdefinition in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B746FC112D45EEF4005068C4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B746FC1B2D45EEF4005068C4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B746FF532D45F7B3005068C4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B7EE08662D546770006BF2A7 /* SharedConfig.swift in Sources */,
+				B74602CC2D46C101005068C4 /* WidgetData.swift in Sources */,
+				B74602CD2D46C101005068C4 /* InstancifyWidgets.swift in Sources */,
+				B74602CF2D46C92A005068C4 /* InstancifyWidget.intentdefinition in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		B74601B62D462745005068C4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B746FF562D45F7B3005068C4 /* InstancifyWidgetsExtension */;
+			targetProxy = B74601B52D462745005068C4 /* PBXContainerItemProxy */;
+		};
+		B74601B92D462750005068C4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B746FF562D45F7B3005068C4 /* InstancifyWidgetsExtension */;
+			targetProxy = B74601B82D462750005068C4 /* PBXContainerItemProxy */;
+		};
+		B746FC172D45EEF4005068C4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B746FC042D45EEF2005068C4 /* Instancify */;
+			targetProxy = B746FC162D45EEF4005068C4 /* PBXContainerItemProxy */;
+		};
+		B746FC212D45EEF4005068C4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B746FC042D45EEF2005068C4 /* Instancify */;
+			targetProxy = B746FC202D45EEF4005068C4 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		B746FC272D45EEF4005068C4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		B746FC282D45EEF4005068C4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		B746FC2A2D45EEF4005068C4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Instancify/Instancify.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"Instancify/Preview Content\"";
+				DEVELOPMENT_TEAM = 34J85B27LM;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Instancify/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = tech.md.Instancify;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B746FC2B2D45EEF4005068C4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Instancify/Instancify.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"Instancify/Preview Content\"";
+				DEVELOPMENT_TEAM = 34J85B27LM;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Instancify/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = tech.md.Instancify;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		B746FC2D2D45EEF4005068C4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 34J85B27LM;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = tech.md.InstancifyTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Instancify.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Instancify";
+			};
+			name = Debug;
+		};
+		B746FC2E2D45EEF4005068C4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 34J85B27LM;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = tech.md.InstancifyTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Instancify.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Instancify";
+			};
+			name = Release;
+		};
+		B746FC302D45EEF4005068C4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 34J85B27LM;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = tech.md.InstancifyUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Instancify;
+			};
+			name = Debug;
+		};
+		B746FC312D45EEF4005068C4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 34J85B27LM;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = tech.md.InstancifyUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Instancify;
+			};
+			name = Release;
+		};
+		B746FF6D2D45F7B5005068C4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = InstancifyWidgetsExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 34J85B27LM;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = InstancifyWidgetsExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = InstancifyWidgets;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = tech.md.Instancify.InstancifyWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "InstancifyWidgetsExtension-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B746FF6E2D45F7B5005068C4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = InstancifyWidgetsExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 34J85B27LM;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = InstancifyWidgetsExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = InstancifyWidgets;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = tech.md.Instancify.InstancifyWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "InstancifyWidgetsExtension-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		B746FC002D45EEF2005068C4 /* Build configuration list for PBXProject "Instancify" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B746FC272D45EEF4005068C4 /* Debug */,
+				B746FC282D45EEF4005068C4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B746FC292D45EEF4005068C4 /* Build configuration list for PBXNativeTarget "Instancify" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B746FC2A2D45EEF4005068C4 /* Debug */,
+				B746FC2B2D45EEF4005068C4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B746FC2C2D45EEF4005068C4 /* Build configuration list for PBXNativeTarget "InstancifyTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B746FC2D2D45EEF4005068C4 /* Debug */,
+				B746FC2E2D45EEF4005068C4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B746FC2F2D45EEF4005068C4 /* Build configuration list for PBXNativeTarget "InstancifyUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B746FC302D45EEF4005068C4 /* Debug */,
+				B746FC312D45EEF4005068C4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B746FF6C2D45F7B5005068C4 /* Build configuration list for PBXNativeTarget "InstancifyWidgetsExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B746FF6D2D45F7B5005068C4 /* Debug */,
+				B746FF6E2D45F7B5005068C4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		B77EAD982D5617A200758D05 /* XCRemoteSwiftPackageReference "jwt-kit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/vapor/jwt-kit.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.1.2;
+			};
+		};
+		B7EE084C2D54669B006BF2A7 /* XCRemoteSwiftPackageReference "KeychainAccess" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/kishikawakatsumi/KeychainAccess";
+			requirement = {
+				branch = master;
+				kind = branch;
+			};
+		};
+		B7EE08512D5466D0006BF2A7 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = exactVersion;
+				version = 11.8.1;
+			};
+		};
+		B7EE08582D546720006BF2A7 /* XCRemoteSwiftPackageReference "aws-sdk-ios-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/aws-amplify/aws-sdk-ios-spm";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.40.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B77EAD992D5617A200758D05 /* JWTKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B77EAD982D5617A200758D05 /* XCRemoteSwiftPackageReference "jwt-kit" */;
+			productName = JWTKit;
+		};
+		B7EE084D2D54669B006BF2A7 /* KeychainAccess */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B7EE084C2D54669B006BF2A7 /* XCRemoteSwiftPackageReference "KeychainAccess" */;
+			productName = KeychainAccess;
+		};
+		B7EE084F2D5466A9006BF2A7 /* KeychainAccess */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B7EE084C2D54669B006BF2A7 /* XCRemoteSwiftPackageReference "KeychainAccess" */;
+			productName = KeychainAccess;
+		};
+		B7EE08522D5466D0006BF2A7 /* FirebaseAnalytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B7EE08512D5466D0006BF2A7 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalytics;
+		};
+		B7EE08542D5466D0006BF2A7 /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B7EE08512D5466D0006BF2A7 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
+		B7EE08562D5466D0006BF2A7 /* FirebaseMessaging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B7EE08512D5466D0006BF2A7 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseMessaging;
+		};
+		B7EE08592D546720006BF2A7 /* AWSAuthUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B7EE08582D546720006BF2A7 /* XCRemoteSwiftPackageReference "aws-sdk-ios-spm" */;
+			productName = AWSAuthUI;
+		};
+		B7EE085B2D546720006BF2A7 /* AWSCloudWatch */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B7EE08582D546720006BF2A7 /* XCRemoteSwiftPackageReference "aws-sdk-ios-spm" */;
+			productName = AWSCloudWatch;
+		};
+		B7EE085D2D546720006BF2A7 /* AWSDynamoDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B7EE08582D546720006BF2A7 /* XCRemoteSwiftPackageReference "aws-sdk-ios-spm" */;
+			productName = AWSDynamoDB;
+		};
+		B7EE085F2D546720006BF2A7 /* AWSEC2 */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B7EE08582D546720006BF2A7 /* XCRemoteSwiftPackageReference "aws-sdk-ios-spm" */;
+			productName = AWSEC2;
+		};
+		B7EE08612D546720006BF2A7 /* AWSS3 */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B7EE08582D546720006BF2A7 /* XCRemoteSwiftPackageReference "aws-sdk-ios-spm" */;
+			productName = AWSS3;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = B746FBFD2D45EEF2005068C4 /* Project object */;
+}
