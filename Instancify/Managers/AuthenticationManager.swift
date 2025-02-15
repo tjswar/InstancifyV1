@@ -14,8 +14,20 @@ class AuthenticationManager: ObservableObject {
     @Published private(set) var accessKeyId: String = ""
     @Published private(set) var secretAccessKey: String = ""
     
+    #if DEBUG
+    private var isPreview: Bool {
+        ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
+    }
+    #endif
+    
     private init() {
         print("🔐 AuthManager: Initializing...")
+        #if DEBUG
+        if isPreview {
+            print("🔐 AuthManager: Running in preview mode")
+            return
+        }
+        #endif
         restoreFromKeychain()
     }
     
@@ -73,6 +85,10 @@ class AuthenticationManager: ObservableObject {
         // Clear EC2Service data before signing out
         EC2Service.shared.clearAllData()
         
+        // Unregister AWS services
+        print("🔄 Unregistering AWS services...")
+        AWSEC2.remove(forKey: "defaultKey")
+        
         // Clear credentials
         self.accessKeyId = ""
         self.secretAccessKey = ""
@@ -112,30 +128,71 @@ class AuthenticationManager: ObservableObject {
         }
     }
     
+    @MainActor
+    func configureAWSServices() async throws {
+        print("\n🔧 Configuring AWS services...")
+        
+        // Get credentials
+        let credentials = try getAWSCredentials()
+        
+        // Clean up any existing AWS configurations
+        AWSServiceManager.default().defaultServiceConfiguration = nil
+        AWSEC2.remove(forKey: "defaultKey")
+        
+        // Create credential provider
+        let credentialsProvider = AWSStaticCredentialsProvider(
+            accessKey: credentials.accessKeyId,
+            secretKey: credentials.secretAccessKey
+        )
+        
+        // Create service configuration
+        let configuration = AWSServiceConfiguration(
+            region: selectedRegion.awsRegionType,
+            credentialsProvider: credentialsProvider
+        )!
+        
+        // Set default service configuration
+        AWSServiceManager.default().defaultServiceConfiguration = configuration
+        
+        // Register AWS services
+        print("📝 Registering AWS services...")
+        AWSEC2.register(with: configuration, forKey: "defaultKey")
+        
+        // Update EC2Service configuration
+        EC2Service.shared.updateConfiguration(
+            with: credentials,
+            region: selectedRegion.awsRegionType
+        )
+        
+        print("✅ AWS configured with credentials for region \(selectedRegion.rawValue)")
+        
+        // Validate credentials immediately
+        try await EC2Service.shared.validateCredentials()
+        print("✅ AWS credentials validated successfully")
+    }
+    
     private func restoreFromKeychain() {
+        print("🔐 AuthManager: Attempting to restore from keychain...")
         do {
-            if let accessKeyId = try keychain.get("accessKeyId"),
-               let secretAccessKey = try keychain.get("secretAccessKey"),
-               let regionString = try keychain.get("region"),
-               let region = AWSRegion(rawValue: regionString) {
-                
-                print("🔐 AuthManager: Restoring from keychain...")
-                print("🔐 AuthManager: Region from keychain: \(regionString)")
-                
-                self.accessKeyId = accessKeyId
-                self.secretAccessKey = secretAccessKey
-                self.selectedRegion = region
-                
-                // Configure AWS with restored credentials
-                let credentials = AWSCredentials(
-                    accessKeyId: accessKeyId,
-                    secretAccessKey: secretAccessKey
-                )
-                configureAWS(with: credentials)
-                
-                self.isAuthenticated = true
-                print("🔐 AuthManager: ✅ Restored from Keychain")
+            guard let accessKeyId = try keychain.get("accessKeyId"),
+                  let secretAccessKey = try keychain.get("secretAccessKey"),
+                  let regionString = try keychain.get("region"),
+                  let region = AWSRegion(rawValue: regionString) else {
+                print("🔐 AuthManager: No credentials found in Keychain")
+                return
             }
+            
+            print("🔐 AuthManager: Found credentials in keychain")
+            print("🔐 AuthManager: Region from keychain: \(regionString)")
+            
+            self.accessKeyId = accessKeyId
+            self.secretAccessKey = secretAccessKey
+            self.selectedRegion = region
+            
+            // Set authenticated state
+            self.isAuthenticated = true
+            print("🔐 AuthManager: ✅ Restored from Keychain")
+            
         } catch {
             print("🔐 AuthManager: ❌ Failed to restore from Keychain: \(error)")
         }
@@ -152,11 +209,12 @@ class AuthenticationManager: ObservableObject {
         // Update region first
         selectedRegion = newRegion
         
+        // Unregister existing services
+        print("🔄 Unregistering AWS services for region change...")
+        AWSEC2.remove(forKey: "defaultKey")
+        
         // Configure AWS with new region
-        EC2Service.shared.updateConfiguration(
-            with: credentials,
-            region: newRegion.awsRegionType
-        )
+        try await configureAWSServices()
         
         // Save new region
         try keychain.set(newRegion.rawValue, key: "region")
@@ -168,34 +226,5 @@ class AuthenticationManager: ObservableObject {
         
         // Clear any cached data for old region
         EC2Service.shared.clearAllData()
-    }
-    
-    private func configureAWS(with credentials: AWSCredentials) {
-        print("\n🔧 Configuring AWS with credentials...")
-        
-        // Update EC2Service configuration
-        EC2Service.shared.updateConfiguration(
-            with: credentials,
-            region: selectedRegion.awsRegionType
-        )
-        
-        print("✅ AWS configured with credentials for region \(selectedRegion.rawValue)")
-    }
-}
-
-// Keep the AWSRegion extension
-extension AWSRegion {
-    var awsRegionType: AWSRegionType {
-        switch self {
-        case .usEast1: return .USEast1
-        case .usEast2: return .USEast2
-        case .usWest1: return .USWest1
-        case .usWest2: return .USWest2
-        case .euWest1: return .EUWest1
-        case .euWest2: return .EUWest2
-        case .euCentral1: return .EUCentral1
-        case .apSoutheast1: return .APSoutheast1
-        case .apSoutheast2: return .APSoutheast2
-        }
     }
 } 

@@ -11,6 +11,9 @@ enum AWSRegion: String, CaseIterable, Identifiable {
     case euCentral1 = "eu-central-1"
     case apSoutheast1 = "ap-southeast-1"
     case apSoutheast2 = "ap-southeast-2"
+    case apNortheast1 = "ap-northeast-1"
+    case apNortheast2 = "ap-northeast-2"
+    case saEast1 = "sa-east-1"
     
     var id: String { rawValue }
     
@@ -25,10 +28,13 @@ enum AWSRegion: String, CaseIterable, Identifiable {
         case .euCentral1: return "EU (Frankfurt)"
         case .apSoutheast1: return "Asia Pacific (Singapore)"
         case .apSoutheast2: return "Asia Pacific (Sydney)"
+        case .apNortheast1: return "Asia Pacific (Tokyo)"
+        case .apNortheast2: return "Asia Pacific (Seoul)"
+        case .saEast1: return "South America (São Paulo)"
         }
     }
     
-    func toAWSRegionType() -> AWSRegionType {
+    var awsRegionType: AWSRegionType {
         switch self {
         case .usEast1: return .USEast1
         case .usEast2: return .USEast2
@@ -39,6 +45,17 @@ enum AWSRegion: String, CaseIterable, Identifiable {
         case .euCentral1: return .EUCentral1
         case .apSoutheast1: return .APSoutheast1
         case .apSoutheast2: return .APSoutheast2
+        case .apNortheast1: return .APNortheast1
+        case .apNortheast2: return .APNortheast2
+        case .saEast1: return .SAEast1
         }
     }
+}
+
+// Global function for mapping region strings to AWSRegionType
+func mapRegionToAWSType(_ region: String) -> AWSRegionType {
+    if let awsRegion = AWSRegion(rawValue: region) {
+        return awsRegion.awsRegionType
+    }
+    return .USEast1 // Default to US East 1 if region string is not recognized
 } 

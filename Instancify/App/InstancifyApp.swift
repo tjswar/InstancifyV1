@@ -4,6 +4,10 @@ import ActivityKit
 import BackgroundTasks
 import FirebaseCore
 import FirebaseMessaging
+import FirebaseAuth
+import FirebaseFirestore
+import AWSCore
+import AWSEC2
 
 @main
 struct InstancifyApp: App {
@@ -18,6 +22,28 @@ struct InstancifyApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var instanceMonitoringService = InstanceMonitoringService.shared
     
+    init() {
+        // Configure Firebase first
+        FirebaseApp.configure()
+        
+        // Configure Firestore settings
+        let settings = FirestoreSettings()
+        settings.isPersistenceEnabled = true
+        Firestore.firestore().settings = settings
+        
+        print("✅ Firebase configured in InstancifyApp init")
+        
+        // Try anonymous sign in at app launch
+        Task {
+            do {
+                try await Auth.auth().signInAnonymously()
+                print("✅ Anonymous auth successful")
+            } catch {
+                print("❌ Anonymous auth failed: \(error.localizedDescription)")
+            }
+        }
+    }
+    
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -28,38 +54,55 @@ struct InstancifyApp: App {
                 .environmentObject(appLockService)
                 .tint(appearanceViewModel.currentAccentColor)
                 .task {
-                    // Request Live Activity authorization
-                    let enabled = ActivityAuthorizationInfo().areActivitiesEnabled
-                    print("Live Activities enabled: \(enabled)")
+                    // Configure AWS services if authenticated
+                    if authManager.isAuthenticated {
+                        do {
+                            try await authManager.configureAWSServices()
+                            print("✅ AWS services configured successfully")
+                            
+                            // Request Live Activity authorization after AWS is configured
+                            let enabled = ActivityAuthorizationInfo().areActivitiesEnabled
+                            print("Live Activities enabled: \(enabled)")
+                            
+                            // Initial instance fetch
+                            try await ec2Service.fetchInstances()
+                        } catch {
+                            print("❌ Failed to configure AWS services: \(error)")
+                        }
+                    }
+                }
+                .onChange(of: authManager.isAuthenticated) { wasAuthenticated, isAuthenticated in
+                    if isAuthenticated {
+                        Task {
+                            do {
+                                try await authManager.configureAWSServices()
+                                print("✅ AWS services configured after authentication")
+                                try await ec2Service.fetchInstances()
+                            } catch {
+                                print("❌ Failed to configure AWS services: \(error)")
+                            }
+                        }
+                    }
                 }
                 .onAppear {
                     UIView.appearance().tintColor = UIColor(appearanceViewModel.currentAccentColor)
                     if appLockService.isPasswordSet() {
                         appLockService.lock()
                     }
-                    
-                    // Initial refresh when app appears
-                    Task {
-                        do {
-                            try await ec2Service.fetchInstances()
-                        } catch {
-                            print("❌ Failed to fetch instances: \(error)")
-                        }
-                    }
                 }
                 .onChange(of: scenePhase) { oldPhase, newPhase in
                     if newPhase == .active {
                         Task {
                             do {
-                                // Refresh instances when app becomes active
-                                try await ec2Service.fetchInstances()
+                                if authManager.isAuthenticated {
+                                    try await ec2Service.fetchInstances()
+                                }
                                 
-                                // Start monitoring if needed
                                 if InstanceMonitoringService.shared.isMonitoring {
-                                    await InstanceMonitoringService.shared.startMonitoring()
+                                    try await InstanceMonitoringService.shared.startMonitoring()
                                 }
                             } catch {
-                                print("❌ Failed to refresh instances: \(error)")
+                                print("❌ Failed to refresh instances or start monitoring: \(error)")
                             }
                         }
                     }

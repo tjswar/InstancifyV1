@@ -5,6 +5,8 @@ import AWSCloudWatch
 import UserNotifications
 import BackgroundTasks
 import UIKit
+import AWSCore
+import FirebaseFirestore
 
 @MainActor
 class InstanceMonitoringService: ObservableObject {
@@ -12,11 +14,8 @@ class InstanceMonitoringService: ObservableObject {
     private let notificationManager = NotificationManager.shared
     private let ec2Service = EC2Service.shared
     private let defaults: UserDefaults?
-    
-    // Lazy load notification settings to prevent initialization deadlock
-    private lazy var notificationSettings: NotificationSettingsViewModel = {
-        NotificationSettingsViewModel.shared
-    }()
+    private let notificationSettings = NotificationSettingsViewModel.shared
+    private let scheduledNotifications = ScheduledNotificationService.shared
     
     @Published private(set) var notificationHistory: [NotificationHistoryItem] = []
     private let maxHistoryItems = 100 // Keep last 100 notifications
@@ -37,33 +36,60 @@ class InstanceMonitoringService: ObservableObject {
         }
         
         isMonitoring = defaults?.bool(forKey: "isMonitoring") ?? false
+        
+        // Register for app lifecycle notifications
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppWillTerminate),
+            name: UIApplication.willTerminateNotification,
+            object: nil
+        )
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
     }
     
-    func initialize() async {
-        guard !isInitialized else { return }
-        
-        await loadNotificationHistory()
-        await loadNotifiedThresholds()
-        
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleRuntimeAlertsChanged),
-            name: NSNotification.Name("RuntimeAlertsChanged"),
-            object: nil
-        )
-        
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleRegionChange(_:)),
-            name: NSNotification.Name("RegionChanged"),
-            object: nil
-        )
-        
-        if notificationSettings.runtimeAlertsEnabled {
-            await startMonitoring()
+    @objc private func handleAppWillTerminate() {
+        // Save monitoring state before app termination
+        defaults?.set(isMonitoring, forKey: "isMonitoring")
+        defaults?.synchronize()
+    }
+    
+    @objc private func handleAppDidBecomeActive() {
+        // Restore monitoring state when app becomes active
+        Task {
+            do {
+                try await initialize()
+                
+                // Check instance states and clear alerts for stopped instances
+                let settings = NotificationSettingsViewModel.shared
+                if settings.runtimeAlertsEnabled {
+                    try await checkAndCleanupAlerts()
+                    if isMonitoring {
+                        try await checkAllRegions()
+                    } else {
+                        try await startMonitoring()
+                    }
+                }
+            } catch {
+                print("❌ Failed to restore monitoring state: \(error)")
+                // Try to recover monitoring state
+                if let wasMonitoring = defaults?.bool(forKey: "isMonitoring"), wasMonitoring {
+                    print("🔄 Attempting to recover monitoring state")
+                    Task {
+                        do {
+                            try await startMonitoring()
+                        } catch {
+                            print("❌ Failed to recover monitoring state: \(error)")
+                        }
+                    }
+                }
+            }
         }
-        
-        isInitialized = true
     }
     
     @objc private func handleRegionChange(_ notification: Notification) {
@@ -71,11 +97,43 @@ class InstanceMonitoringService: ObservableObject {
             currentRegion = newRegion
             
             Task {
-                await resetAllNotificationState()
-                await clearScheduledNotifications()
-                
-                if notificationSettings.runtimeAlertsEnabled {
-                    await startMonitoring()
+                do {
+                    // Get current credentials
+                    let authManager = AuthenticationManager.shared
+                    let credentials = try authManager.getAWSCredentials()
+                    
+                    // Configure AWS services for new region
+                    try await AWSManager.shared.configure(
+                        accessKey: credentials.accessKeyId,
+                        secretKey: credentials.secretAccessKey,
+                        region: authManager.selectedRegion.awsRegionType
+                    )
+                    
+                    // Update EC2Service configuration
+                    EC2Service.shared.updateConfiguration(
+                        with: credentials,
+                        region: authManager.selectedRegion.awsRegionType
+                    )
+                    
+                    print("✅ AWS credentials reconfigured for region: \(newRegion)")
+                    
+                    // Check all regions to maintain alerts across regions
+                    try await checkAllRegions()
+                    
+                    // Restore alerts for this region if they were enabled
+                    if let defaults = self.defaults,
+                       defaults.bool(forKey: "runtimeAlerts_enabled_\(newRegion)") {
+                        print("🔄 Restoring alerts for region: \(newRegion)")
+                        Task {
+                            do {
+                                try await NotificationSettingsViewModel.shared.setRuntimeAlerts(enabled: true, region: newRegion)
+                            } catch {
+                                print("❌ Failed to restore alerts for region \(newRegion): \(error)")
+                            }
+                        }
+                    }
+                } catch {
+                    print("❌ Failed to handle region change to \(newRegion): \(error)")
                 }
             }
         }
@@ -83,536 +141,477 @@ class InstanceMonitoringService: ObservableObject {
     
     @objc private func handleRuntimeAlertsChanged() {
         Task {
-            await resetAllNotificationState()
-            
-            if notificationSettings.runtimeAlertsEnabled {
-                if !isMonitoring {
-                    await restartMonitoring()
+            do {
+                if notificationSettings.runtimeAlertsEnabled {
+                    if !isMonitoring {
+                        try await restartMonitoring()
+                    } else {
+                        try await checkAllRegions()
+                    }
                 } else {
-                    await checkAllRegions()
+                    stopMonitoring()
                 }
-            } else {
-                stopMonitoring()
+            } catch {
+                print("❌ Failed to handle runtime alerts change: \(error)")
             }
         }
     }
     
-    private func restartMonitoring() async {
-        let settings = await UNUserNotificationCenter.current().notificationSettings()
-        guard settings.authorizationStatus == .authorized else { return }
+    func initialize() async throws {
+        guard !isInitialized else { return }
         
-        isMonitoring = true
-        monitoringTask?.cancel()
+        try await loadNotificationHistory()
+        try await loadNotifiedThresholds()
         
-        monitoringTask = Task {
-            if !Task.isCancelled {
-                await checkAllRegions()
+        // Ensure AWS credentials are configured before proceeding
+        let authManager = AuthenticationManager.shared
+        
+        do {
+            let credentials = try authManager.getAWSCredentials()
+            
+            // Configure AWS services with credentials
+            try await AWSManager.shared.configure(
+                accessKey: credentials.accessKeyId,
+                secretKey: credentials.secretAccessKey,
+                region: authManager.selectedRegion.awsRegionType
+            )
+            
+            // Update EC2Service configuration
+            EC2Service.shared.updateConfiguration(
+                with: credentials,
+                region: authManager.selectedRegion.awsRegionType
+            )
+            
+            print("✅ AWS credentials configured for region: \(authManager.selectedRegion.rawValue)")
+            
+            // Setup notification observers
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleRuntimeAlertsChanged),
+                name: NSNotification.Name("RuntimeAlertsChanged"),
+                object: nil
+            )
+            
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleRegionChange(_:)),
+                name: NSNotification.Name("RegionChanged"),
+                object: nil
+            )
+            
+            // Start monitoring if alerts are enabled
+            if notificationSettings.runtimeAlertsEnabled {
+                try await startMonitoring()
             }
             
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(nanoseconds: 120_000_000_000) // 2 minutes
-                    if !Task.isCancelled {
-                        await checkAllRegions()
-                    }
-                } catch {
-                    if !Task.isCancelled {
-                        break
-                    }
-                }
+            isInitialized = true
+        } catch {
+            print("❌ Failed to initialize with error: \(error)")
+            // Try to recover credentials
+            if let savedCredentials = try? KeychainManager.shared.retrieveCredentials(),
+               let savedRegion = try? KeychainManager.shared.getRegion() {
+                print("🔄 Attempting to recover using saved credentials")
+                try await AWSManager.shared.configure(
+                    accessKey: savedCredentials.accessKeyId,
+                    secretKey: savedCredentials.secretAccessKey,
+                    region: mapRegionToAWSType(savedRegion)
+                )
+                
+                EC2Service.shared.updateConfiguration(
+                    with: savedCredentials,
+                    region: mapRegionToAWSType(savedRegion)
+                )
+                
+                print("✅ Recovered using saved credentials")
+                isInitialized = true
+            } else {
+                throw error
             }
         }
     }
     
-    func startMonitoring() async {
-        guard !isMonitoring else { return }
+    func startMonitoring() async throws {
+        print("\n🔄 Starting instance monitoring")
         
+        // Try to get credentials from multiple sources
+        let credentials: AWSCredentials
+        let region: String
+        
+        do {
+            credentials = try AuthenticationManager.shared.getAWSCredentials()
+            region = AuthenticationManager.shared.selectedRegion.rawValue
+        } catch {
+            print("⚠️ Failed to get credentials from AuthManager, trying Keychain")
+            credentials = try KeychainManager.shared.retrieveCredentials()
+            region = try KeychainManager.shared.getRegion()
+        }
+        
+        // Create credentials provider
+        let credentialsProvider = AWSStaticCredentialsProvider(
+            accessKey: credentials.accessKeyId,
+            secretKey: credentials.secretAccessKey
+        )
+        
+        // Create service configuration
+        let configuration = AWSServiceConfiguration(
+            region: mapRegionToAWSType(region),
+            credentialsProvider: credentialsProvider
+        )!
+        
+        // Set default configuration
+        AWSServiceManager.default().defaultServiceConfiguration = configuration
+        
+        // Register EC2 service with this configuration
+        AWSEC2.register(with: configuration, forKey: "DefaultKey")
+        
+        print("✅ AWS configuration updated with credentials")
+        print("  • Access Key ID: \(credentials.accessKeyId)")
+        print("  • Region: \(region)")
+        
+        // Start monitoring
         isMonitoring = true
+        defaults?.set(true, forKey: "isMonitoring")
+        defaults?.synchronize()
+        
+        monitoringTask?.cancel()
         monitoringTask = Task {
-            while !Task.isCancelled {
-                await checkAllRegions()
-                try? await Task.sleep(nanoseconds: 60 * NSEC_PER_SEC)
+            do {
+                while isMonitoring {
+                    try await checkAllRegions()
+                    try await Task.sleep(nanoseconds: 5 * 60 * 1_000_000_000) // Check every 5 minutes
+                }
+            } catch {
+                print("❌ Failed to check regions: \(error)")
+                isMonitoring = false
+                defaults?.set(false, forKey: "isMonitoring")
+                defaults?.synchronize()
             }
         }
+        
+        print("✅ Instance monitoring started")
+        
+        // Schedule background tasks
+        await AppDelegate.shared.scheduleBackgroundTasks()
     }
     
-    func stopMonitoring() {
+    private func stopMonitoring() {
         isMonitoring = false
+        defaults?.set(false, forKey: "isMonitoring")
+        defaults?.synchronize()
+        
         monitoringTask?.cancel()
         monitoringTask = nil
         
         Task {
-            await resetAllNotificationState()
+            do {
+                try await resetAllNotificationState()
+            } catch {
+                print("❌ Failed to reset notification state: \(error)")
+            }
         }
     }
     
-    func checkAllRegions() async {
-        guard notificationSettings.runtimeAlertsEnabled else { return }
+    private func restartMonitoring() async throws {
+        stopMonitoring()
+        try await startMonitoring()
+    }
+    
+    private func resetAllNotificationState() async throws {
+        notifiedThresholds.removeAll()
+        try saveNotifiedThresholds()
+    }
+    
+    private func clearScheduledNotifications() async throws {
+        // Clear all scheduled notifications for current region
+        scheduledNotifications.clearNotifications(instanceId: "", region: currentRegion)
+    }
+    
+    func checkAllRegions() async throws {
+        print("\n🔍 Checking all regions for runtime alerts")
         
-        guard let credentials = try? AuthenticationManager.shared.getAWSCredentials() else { return }
+        // Get credentials first
+        guard let credentials = try? AuthenticationManager.shared.getAWSCredentials() else {
+            print("❌ No AWS credentials available")
+            throw AWSError.noCredentialsFound
+        }
         
-        let originalRegion = currentRegion
-        var allInstances: [EC2Instance] = []
-        let regions = AWSRegion.allCases
+        // Get all enabled alerts
+        let settings = NotificationSettingsViewModel.shared
+        let alerts = settings.runtimeAlerts.filter { $0.enabled }
         
-        for region in regions {
-            do {
-                currentRegion = region.rawValue
+        // Get unique regions to check
+        let regionsToCheck = Set(alerts.flatMap { $0.regions })
+        print("📍 Monitoring regions: \(regionsToCheck)")
+        print("🌍 Global alerts: \(alerts.filter { $0.regions.isEmpty }.count)")
+        
+        // Process global alerts first
+        if alerts.contains(where: { $0.regions.isEmpty }) {
+            print("\n🌐 Processing global alerts...")
+            try await processGlobalAlerts(with: credentials)
+        }
+        
+        // Then process region-specific alerts
+        for region in regionsToCheck {
+            print("\n🗺️ Processing alerts for region: \(region)")
+            try await processRegionAlerts(region: region, with: credentials)
+        }
+        
+        print("\n✅ Completed runtime alert check")
+    }
+    
+    private func processGlobalAlerts(with credentials: AWSCredentials) async throws {
+        // Configure AWS for global check
+        let configuration = AWSServiceConfiguration(
+            region: .USEast1,
+            credentialsProvider: AWSStaticCredentialsProvider(
+                accessKey: credentials.accessKeyId,
+                secretKey: credentials.secretAccessKey
+            )
+        )!
+        
+        AWSEC2.register(with: configuration, forKey: "GlobalCheck")
+        let ec2Client = AWSEC2(forKey: "GlobalCheck")
+        
+        let request = AWSEC2DescribeInstancesRequest()!
+        let result = try await ec2Client.describeInstances(request)
+        
+        if let instances = result.reservations?.flatMap({ $0.instances ?? [] }) {
+            print("📊 Found \(instances.count) instances for global alerts")
+            
+            for instance in instances {
+                guard let instanceId = instance.instanceId,
+                      let state = instance.state,
+                      state.name == .running,
+                      let launchTime = instance.launchTime else { continue }
                 
-                EC2Service.shared.updateConfiguration(
-                    with: credentials,
-                    region: region.toAWSRegionType()
+                let name = instance.tags?.first(where: { $0.key == "Name" })?.value ?? instanceId
+                print("\n⏰ Scheduling global alerts for instance: \(instanceId)")
+                print("  • Name: \(name)")
+                print("  • Launch Time: \(launchTime)")
+                
+                try await scheduledNotifications.scheduleRuntimeNotifications(
+                    instanceId: instanceId,
+                    instanceName: name,
+                    region: "us-east-1",
+                    launchTime: launchTime
                 )
+            }
+        }
+    }
+    
+    private func processRegionAlerts(region: String, with credentials: AWSCredentials) async throws {
+        print("🔄 Processing region: \(region)")
+        
+        // Configure AWS for region check
+        guard let regionType = AWSRegion(rawValue: region)?.awsRegionType else {
+            print("❌ Invalid region: \(region)")
+            return
+        }
+        
+        let configuration = AWSServiceConfiguration(
+            region: regionType,
+            credentialsProvider: AWSStaticCredentialsProvider(
+                accessKey: credentials.accessKeyId,
+                secretKey: credentials.secretAccessKey
+            )
+        )!
+        
+        AWSEC2.register(with: configuration, forKey: "RegionCheck-\(region)")
+        let ec2Client = AWSEC2(forKey: "RegionCheck-\(region)")
+        
+        let request = AWSEC2DescribeInstancesRequest()!
+        let result = try await ec2Client.describeInstances(request)
+        
+        if let instances = result.reservations?.flatMap({ $0.instances ?? [] }) {
+            print("📊 Found \(instances.count) instances in region \(region)")
+            
+            for instance in instances {
+                guard let instanceId = instance.instanceId,
+                      let state = instance.state,
+                      state.name == .running,
+                      let launchTime = instance.launchTime else { continue }
                 
-                let instances = try await ec2Service.fetchInstances()
-                allInstances.append(contentsOf: instances)
-                await checkInstances(instances, in: region.rawValue)
+                let name = instance.tags?.first(where: { $0.key == "Name" })?.value ?? instanceId
+                print("\n⏰ Scheduling alerts for instance: \(instanceId)")
+                print("  • Name: \(name)")
+                print("  • Launch Time: \(launchTime)")
+                
+                try await scheduledNotifications.scheduleRuntimeNotifications(
+                    instanceId: instanceId,
+                    instanceName: name,
+                    region: region,
+                    launchTime: launchTime
+                )
+            }
+        }
+    }
+    
+    private func loadNotificationHistory() async throws {
+        if let data = defaults?.data(forKey: "NotificationHistory") {
+            do {
+                notificationHistory = try JSONDecoder().decode([NotificationHistoryItem].self, from: data)
             } catch {
+                print("❌ Failed to decode notification history: \(error)")
+                notificationHistory = []
+                throw error
+            }
+        }
+    }
+    
+    private func loadNotifiedThresholds() async throws {
+        if let data = defaults?.data(forKey: "NotifiedThresholds") {
+            do {
+                notifiedThresholds = try JSONDecoder().decode([String: [String: Set<Int>]].self, from: data)
+            } catch {
+                print("❌ Failed to decode notified thresholds: \(error)")
+                notifiedThresholds = [:]
+                throw error
+            }
+        }
+    }
+    
+    private func saveNotifiedThresholds() throws {
+        do {
+            let encoded = try JSONEncoder().encode(notifiedThresholds)
+            defaults?.set(encoded, forKey: "NotifiedThresholds")
+        } catch {
+            print("❌ Failed to encode notified thresholds: \(error)")
+            throw error
+        }
+    }
+    
+    // Handle instance state changes
+    func handleInstanceStateChange(_ instance: EC2Instance, region: String) async throws {
+        print("\n🔄 Handling state change for instance \(instance.id) in region \(region)")
+        print("  • Instance: \(instance.name ?? "unnamed")")
+        print("  • State: \(instance.state)")
+        print("  • Launch Time: \(instance.launchTime?.description ?? "unknown")")
+        
+        switch instance.state {
+        case .running:
+            print("✅ Instance is running, scheduling runtime alerts")
+            // Schedule runtime alerts
+            try await scheduledNotifications.scheduleRuntimeNotifications(
+                instanceId: instance.id,
+                instanceName: instance.name,
+                region: region,
+                launchTime: instance.launchTime ?? Date()
+            )
+            
+            // Send state change notification
+            try await notificationManager.sendInstanceStateNotification(
+                instanceId: instance.id,
+                instanceName: instance.name,
+                state: instance.state
+            )
+            
+        case .stopped, .terminated:
+            print("🛑 Instance stopped/terminated, clearing notifications")
+            scheduledNotifications.clearNotifications(instanceId: instance.id, region: region)
+            
+            // Send state change notification
+            try await notificationManager.sendInstanceStateNotification(
+                instanceId: instance.id,
+                instanceName: instance.name,
+                state: instance.state
+            )
+            
+        default:
+            print("⏳ Instance in transition state: \(instance.state)")
+            // Send state change notification for transition states
+            try await notificationManager.sendInstanceStateNotification(
+                instanceId: instance.id,
+                instanceName: instance.name,
+                state: instance.state
+            )
+        }
+    }
+    
+    private func checkAndCleanupAlerts() async throws {
+        print("\n🧹 Checking and cleaning up alerts...")
+        
+        // Get credentials
+        guard let credentials = try? AuthenticationManager.shared.getAWSCredentials() else {
+            print("❌ No AWS credentials available")
+            throw AWSError.noCredentialsFound
+        }
+        
+        // Get all alerts from Firestore
+        let alertsSnapshot = try await FirestoreManager.shared.db
+            .collection("scheduledAlerts")
+            .getDocuments()
+        
+        // Group alerts by region
+        var alertsByRegion: [String: [(String, String)]] = [:] // [region: [(documentId, instanceId)]]
+        
+        for doc in alertsSnapshot.documents {
+            guard let region = doc.data()["region"] as? String,
+                  let instanceId = doc.data()["instanceID"] as? String else {
                 continue
             }
+            alertsByRegion[region, default: []].append((doc.documentID, instanceId))
         }
         
-        // Restore original region and configuration
-        currentRegion = originalRegion
-        EC2Service.shared.updateConfiguration(
-            with: credentials,
-            region: AWSRegion(rawValue: originalRegion)?.toAWSRegionType() ?? .USEast1
-        )
-        
-        // Update total instances
-        self.instances = allInstances
-    }
-    
-    func checkInstances(_ instances: [EC2Instance], in region: String) async {
-        let runningInstances = instances.filter { $0.state == .running }
-        
-        for instance in runningInstances {
-            await checkRuntimeAlerts(for: instance, in: region)
-        }
-        
-        print("\n📊 Current Notification State for \(region):")
-        print(notifiedThresholds[region] ?? [:])
-    }
-    
-    private func checkRuntimeAlerts(for instance: EC2Instance, in region: String) async {
-        guard let launchTime = instance.launchTime else { return }
-        
-        let runtime = Int(Date().timeIntervalSince(launchTime))
-        let enabledAlerts = notificationSettings.runtimeAlerts
-            .filter { $0.enabled }
-            .map { $0.hours * 3600 + $0.minutes * 60 }
-            .sorted()
-        
-        print("\n⏰ Runtime Check for \(instance.name ?? instance.id):")
-        print("  • Launch time: \(launchTime)")
-        print("  • Current time: \(Date())")
-        print("  • Current runtime: \(formatRuntime(runtime))")
-        print("  • Enabled alerts: \(enabledAlerts.map { formatRuntime($0) }.joined(separator: ", "))")
-        
-        // Initialize region and instance thresholds if needed
-        if notifiedThresholds[region] == nil {
-            notifiedThresholds[region] = [:]
-        }
-        if notifiedThresholds[region]?[instance.id] == nil {
-            notifiedThresholds[region]?[instance.id] = Set<Int>()
-        }
-        
-        print("  • Previously notified thresholds: \(notifiedThresholds[region]?[instance.id] ?? [])")
-        
-        for threshold in enabledAlerts {
-            print("\n  📊 Checking threshold: \(formatRuntime(threshold))")
-            print("    • Current runtime: \(formatRuntime(runtime))")
+        // Check instance states in each region
+        for (region, alerts) in alertsByRegion {
+            print("\n🔍 Checking region: \(region)")
             
-            if runtime >= threshold {
-                if !(notifiedThresholds[region]?[instance.id]?.contains(threshold) ?? false) {
-                    // Send notification
-                    let notification = NotificationType.runtimeAlert(
-                        instanceId: instance.id,
-                        instanceName: instance.name ?? instance.id,
-                        runtime: runtime,
-                        threshold: threshold
-                    )
-                    notificationManager.sendNotification(type: notification)
-                    
-                    // Mark threshold as notified in instance's actual region
-                    notifiedThresholds[region]?[instance.id]?.insert(threshold)
-                    saveNotifiedThresholds()
-                }
-            } else {
-                let timeUntil = threshold - runtime
-                print("    ⏳ Time until threshold: \(formatRuntime(timeUntil))")
+            guard let regionType = AWSRegion(rawValue: region)?.awsRegionType else {
+                print("❌ Invalid region: \(region)")
+                continue
             }
-        }
-    }
-    
-    private func addToHistory(_ item: NotificationHistoryItem) {
-        var currentHistory = notificationHistory
-        currentHistory.insert(item, at: 0)
-        
-        if currentHistory.count > maxHistoryItems {
-            currentHistory = Array(currentHistory.prefix(maxHistoryItems))
-        }
-        
-        notificationHistory = currentHistory
-        
-        // Save to UserDefaults
-        if let data = try? JSONEncoder().encode(currentHistory) {
-            defaults?.set(data, forKey: "NotificationHistory")
-        }
-    }
-    
-    private func cleanupOldNotifications() async {
-        let oneDayAgo = Date().addingTimeInterval(-86400)
-        notificationHistory = notificationHistory.filter { $0.date > oneDayAgo }
-        
-        // Save cleaned up history
-        if let encoded = try? JSONEncoder().encode(notificationHistory) {
-            defaults?.set(encoded, forKey: "NotificationHistory")
-            defaults?.synchronize()
-        }
-    }
-    
-    private func sendThresholdNotification(for instance: EC2Instance, threshold: Int) {
-        let content = UNMutableNotificationContent()
-        content.title = "Runtime Alert"
-        content.body = "\(instance.name ?? instance.id) has been running for \(formatRuntime(instance.runtime))"
-        content.sound = .default
-        content.interruptionLevel = .timeSensitive
-        content.categoryIdentifier = "INSTANCE_NOTIFICATION"
-        content.userInfo = ["instanceId": instance.id]
-        
-        let request = UNNotificationRequest(
-            identifier: "runtime-\(instance.id)-\(threshold)",
-            content: content,
-            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
-        )
-        
-        Task {
-            do {
-                try await UNUserNotificationCenter.current().add(request)
-                print("✅ Runtime notification scheduled for instance \(instance.id)")
-                
-                // Add to notification history
-                let historyItem = NotificationHistoryItem(
-                    date: Date(),
-                    title: content.title,
-                    message: content.body,
-                    instanceId: instance.id,
-                    threshold: threshold,
-                    runtime: instance.runtime
+            
+            // Configure AWS for region check
+            let configuration = AWSServiceConfiguration(
+                region: regionType,
+                credentialsProvider: AWSStaticCredentialsProvider(
+                    accessKey: credentials.accessKeyId,
+                    secretKey: credentials.secretAccessKey
                 )
-                await addToNotificationHistory(historyItem)
-            } catch {
-                print("❌ Failed to schedule runtime notification: \(error.localizedDescription)")
-            }
-        }
-    }
-    
-    private func hasNotifiedThreshold(for instanceId: String, threshold: Int) -> Bool {
-        let regionThresholds = notifiedThresholds[currentRegion] ?? [:]
-        let instanceThresholds = regionThresholds[instanceId] ?? Set<Int>()
-        return instanceThresholds.contains(threshold)
-    }
-    
-    private func markThresholdNotified(for instanceId: String, threshold: Int) {
-        if notifiedThresholds[currentRegion] == nil {
-            notifiedThresholds[currentRegion] = [:]
-        }
-        if notifiedThresholds[currentRegion]?[instanceId] == nil {
-            notifiedThresholds[currentRegion]?[instanceId] = Set<Int>()
-        }
-        notifiedThresholds[currentRegion]?[instanceId]?.insert(threshold)
-        saveNotifiedThresholds()
-        print("✅ Marked threshold \(threshold) as notified for \(instanceId) in region \(currentRegion)")
-    }
-    
-    private func resetThresholds(for instanceId: String) {
-        print("\n🔄 Resetting thresholds for instance \(instanceId) in region \(currentRegion)...")
-        
-        // Only reset if instance is actually stopped
-        guard let instance = instances.first(where: { $0.id == instanceId }) else {
-            print("  ❌ Instance not found")
-            return
-        }
-        
-        guard instance.state == .stopped else {
-            print("  ⚠️ Not resetting thresholds - instance is not stopped (current state: \(instance.state.rawValue))")
-            return
-        }
-        
-        // Clear thresholds for this instance in the current region
-        notifiedThresholds[currentRegion]?[instanceId]?.removeAll()
-        saveNotifiedThresholds()
-        print("  ✅ Thresholds reset successfully")
-    }
-    
-    private func saveNotifiedThresholds() {
-        print("\n💾 Saving notified thresholds...")
-        // Convert Set to Array for UserDefaults storage
-        var thresholdsToSave: [String: [String: [Int]]] = [:]
-        for (region, instanceThresholds) in notifiedThresholds {
-            thresholdsToSave[region] = [:]
-            for (instanceId, thresholds) in instanceThresholds {
-                thresholdsToSave[region]?[instanceId] = Array(thresholds)
-            }
-        }
-        defaults?.set(thresholdsToSave, forKey: "NotifiedThresholds")
-        defaults?.synchronize()
-        
-        // Print current state
-        print("  📊 Current state by region:")
-        for (region, instanceThresholds) in notifiedThresholds {
-            print("  • Region: \(region)")
-            for (instanceId, thresholds) in instanceThresholds {
-                let instanceName = instances.first(where: { $0.id == instanceId })?.name ?? instanceId
-                print("    - \(instanceName): \(thresholds.sorted().map { "\($0)m" }.joined(separator: ", "))")
-            }
-        }
-    }
-    
-    private func clearScheduledNotifications() async {
-        print("\n🧹 Clearing scheduled notifications...")
-        let center = UNUserNotificationCenter.current()
-        
-        // Get all pending notifications
-        let pendingRequests = await center.pendingNotificationRequests()
-        let thresholdNotifications = pendingRequests.filter { 
-            $0.identifier.starts(with: "threshold-")
-        }
-        
-        if !thresholdNotifications.isEmpty {
-            print("  • Removing \(thresholdNotifications.count) threshold notifications")
-            center.removePendingNotificationRequests(withIdentifiers: thresholdNotifications.map { $0.identifier })
-        }
-        
-        // Also clear delivered notifications
-        let deliveredNotifications = await center.deliveredNotifications()
-        let thresholdDelivered = deliveredNotifications.filter {
-            $0.request.identifier.starts(with: "threshold-")
-        }
-        
-        if !thresholdDelivered.isEmpty {
-            print("  • Removing \(thresholdDelivered.count) delivered notifications")
-            center.removeDeliveredNotifications(withIdentifiers: thresholdDelivered.map { $0.request.identifier })
-        }
-        
-        // Reset badge count
-        await setBadgeCount(0)
-        
-        print("✅ Notifications cleared")
-    }
-    
-    private func formatRuntime(_ seconds: Int) -> String {
-        let minutes = seconds / 60
-        let hours = minutes / 60
-        let remainingMinutes = minutes % 60
-        if hours > 0 {
-            return "\(hours)h \(remainingMinutes)m"
-        }
-        return "\(minutes)m"
-    }
-    
-    private func scheduleThresholdNotification(for instance: EC2Instance, threshold: Int, timeInterval: TimeInterval) async {
-        print("\n📅 Scheduling threshold notification...")
-        print("  • Instance: \(instance.name ?? instance.id)")
-        print("  • Threshold: \(threshold)m")
-        
-        // Calculate exact trigger time using Calendar
-        let calendar = Calendar.current
-        let triggerDate = calendar.date(byAdding: .second, value: Int(timeInterval), to: Date()) ?? Date()
-        let components = calendar.dateComponents([.hour, .minute], from: Date(), to: triggerDate)
-        let formattedTime = String(format: "%dh %dm", components.hour ?? 0, components.minute ?? 0)
-        print("  • Will trigger in: \(formattedTime)")
-        
-        // Check authorization status before proceeding
-        let settings = await UNUserNotificationCenter.current().notificationSettings()
-        guard settings.authorizationStatus == .authorized else {
-            print("  ❌ Notification authorization not granted")
-            return
-        }
-        
-        // Create notification content
-        let content = UNMutableNotificationContent()
-        content.title = "⚠️ Runtime Alert"
-        content.body = "\(instance.name ?? instance.id) has been running for \(threshold) minutes"
-        content.sound = .defaultCritical
-        content.interruptionLevel = .timeSensitive
-        content.threadIdentifier = "threshold-\(instance.id)"
-        content.userInfo = [
-            "instanceId": instance.id,
-            "threshold": threshold,
-            "scheduledAt": Date().timeIntervalSince1970
-        ]
-        
-        // Create trigger
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: timeInterval, repeats: false)
-        
-        // Create unique identifier
-        let identifier = "threshold-\(instance.id)-\(threshold)-scheduled"
-        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
-        
-        do {
-            // Remove any existing scheduled notifications for this threshold
-            let center = UNUserNotificationCenter.current()
-            let pendingRequests = await center.pendingNotificationRequests()
-            let existingIdentifiers = pendingRequests
-                .filter { $0.identifier == identifier }
-                .map { $0.identifier }
+            )!
             
-            if !existingIdentifiers.isEmpty {
-                print("  🧹 Removing existing scheduled notification")
-                center.removePendingNotificationRequests(withIdentifiers: existingIdentifiers)
-            }
+            AWSEC2.register(with: configuration, forKey: "Cleanup-\(region)")
+            let ec2Client = AWSEC2(forKey: "Cleanup-\(region)")
             
-            // Schedule new notification
-            try await center.add(request)
-            print("  ✅ Notification scheduled successfully")
+            // Get unique instance IDs for this region
+            let instanceIds = Array(Set(alerts.map { $0.1 }))
             
-            // Verify scheduled notifications
-            let updatedPending = await center.pendingNotificationRequests()
-            print("\n  📊 Verification:")
-            print("    • Pending notifications: \(updatedPending.count)")
-            print("    • Scheduled trigger time: \(Date(timeIntervalSinceNow: timeInterval))")
+            // Check instance states
+            let request = AWSEC2DescribeInstancesRequest()!
+            request.instanceIds = instanceIds
             
-        } catch {
-            print("  ❌ Failed to schedule notification: \(error.localizedDescription)")
-        }
-    }
-    
-    // MARK: - Helper Functions
-    
-    private func resetRuntimeAlerts(for instanceId: String) {
-        print("\n🔄 Resetting runtime alerts for instance \(instanceId)")
-        let notifiedKey = "notified-thresholds-\(instanceId)"
-        defaults?.removeObject(forKey: notifiedKey)
-        defaults?.synchronize()
-        print("✅ Runtime alerts reset")
-    }
-    
-    private func setupNotificationCategories() async {
-        let stopAction = UNNotificationAction(
-            identifier: "STOP_INSTANCE",
-            title: "Stop Instance",
-            options: [.destructive]
-        )
-        
-        let runtimeCategory = UNNotificationCategory(
-            identifier: "RUNTIME_ALERT",
-            actions: [stopAction],
-            intentIdentifiers: [],
-            options: [.customDismissAction]
-        )
-        
-        let center = UNUserNotificationCenter.current()
-        center.setNotificationCategories([runtimeCategory])
-        print("✅ Notification categories configured")
-    }
-    
-    // Set badge count using new API
-    private func setBadgeCount(_ count: Int) async {
-        do {
-            let center = UNUserNotificationCenter.current()
-            try await center.setBadgeCount(count)
-        } catch {
-            print("❌ Failed to set badge count: \(error)")
-        }
-    }
-    
-    private func resetAllNotificationState() async {
-        print("\n🧹 Clearing all notification state...")
-        
-        // Only clear pending notifications, not delivered ones
-        let center = UNUserNotificationCenter.current()
-        center.removeAllPendingNotificationRequests()
-        
-        // Reset badge count
-        await setBadgeCount(0)
-        
-        // Don't clear notified thresholds, just ensure we have entries for all regions
-        for region in notifiedThresholds.keys {
-            if notifiedThresholds[region] == nil {
-                notifiedThresholds[region] = [:]
+            let result = try await ec2Client.describeInstances(request)
+            
+            if let instances = result.reservations?.flatMap({ $0.instances ?? [] }) {
+                let runningInstanceIds = Set(instances.filter { $0.state?.name == .running }.compactMap { $0.instanceId })
+                
+                // Clear alerts for non-running instances
+                let batch = FirestoreManager.shared.db.batch()
+                
+                for (docId, instanceId) in alerts {
+                    if !runningInstanceIds.contains(instanceId) {
+                        print("🗑️ Clearing alerts for stopped instance: \(instanceId)")
+                        let docRef = FirestoreManager.shared.db.collection("scheduledAlerts").document(docId)
+                        batch.deleteDocument(docRef)
+                    }
+                }
+                
+                try await batch.commit()
             }
         }
         
-        print("✅ Notification state reset")
+        print("✅ Alert cleanup completed")
+    }
+}
+
+// MARK: - Notification History
+extension InstanceMonitoringService {
+    func getNotificationHistory() -> [NotificationHistoryItem] {
+        return notificationHistory
     }
     
-    private func loadNotificationHistory() async {
-        if let historyData = defaults?.data(forKey: "NotificationHistory"),
-           let history = try? JSONDecoder().decode([NotificationHistoryItem].self, from: historyData) {
-            notificationHistory = history
-            print("✅ Loaded \(notificationHistory.count) notification history items")
-        } else {
-            print("❌ Failed to load notification history")
-        }
-    }
-    
-    private func resetNotificationsForInstance(_ instanceId: String, inRegion region: String) async {
-        print("\n🧹 Clearing notifications for instance \(instanceId) in region \(region)...")
-        
-        // Clear thresholds for this instance in the specified region
-        notifiedThresholds[region]?[instanceId]?.removeAll()
-        saveNotifiedThresholds()
-        
-        // Clear any pending notifications for this instance in this region
-        let center = UNUserNotificationCenter.current()
-        let pendingRequests = await center.pendingNotificationRequests()
-        let instanceRequests = pendingRequests.filter { 
-            $0.identifier.contains(instanceId) && $0.identifier.contains(region)
-        }
-        center.removePendingNotificationRequests(withIdentifiers: instanceRequests.map { $0.identifier })
-        
-        print("✅ Notifications cleared for instance \(instanceId) in region \(region)")
-    }
-    
-    private func handleInstanceStarted(instance: EC2Instance) async {
-        // Send notification
-        let notification = NotificationType.instanceStarted(
-            instanceId: instance.id,
-            name: instance.name ?? instance.id
-        )
-        notificationManager.sendNotification(type: notification)
-        
-        // Reset notifications for this instance
-        await resetNotificationsForInstance(instance.id, inRegion: instance.region)
-    }
-    
-    private func handleInstanceStopped(instance: EC2Instance) async {
-        // Send notification
-        let notification = NotificationType.instanceStopped(
-            instanceId: instance.id,
-            name: instance.name ?? instance.id
-        )
-        notificationManager.sendNotification(type: notification)
-        
-        // Reset notifications for this instance
-        await resetNotificationsForInstance(instance.id, inRegion: instance.region)
-    }
-    
-    private func loadNotifiedThresholds() async {
-        if let data = defaults?.data(forKey: "NotifiedThresholds"),
-           let decoded = try? JSONDecoder().decode([String: [String: Set<Int>]].self, from: data) {
-            notifiedThresholds = decoded
-            print("✅ Loaded notified thresholds")
-        } else {
-            print("❌ Failed to load notified thresholds")
-        }
-    }
-    
-    private func addToNotificationHistory(_ item: NotificationHistoryItem) async {
-        var history = notificationHistory
-        history.insert(item, at: 0)
-        
-        if history.count > maxHistoryItems {
-            history = Array(history.prefix(maxHistoryItems))
-        }
-        
-        notificationHistory = history
-        
-        // Save to UserDefaults
-        if let data = try? JSONEncoder().encode(history) {
-            defaults?.set(data, forKey: "NotificationHistory")
-        }
+    func clearNotificationHistory() {
+        notificationHistory.removeAll()
+        defaults?.removeObject(forKey: "NotificationHistory")
     }
 } 

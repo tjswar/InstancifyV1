@@ -34,7 +34,7 @@ enum InstanceState: String, Codable, Equatable {
     }
 }
 
-class EC2Instance: ObservableObject, Identifiable {
+class EC2Instance: ObservableObject, Identifiable, Equatable {
     let id: String
     let instanceType: String
     @Published var state: InstanceState
@@ -52,6 +52,24 @@ class EC2Instance: ObservableObject, Identifiable {
     let region: String
     
     var instanceId: String { id }
+    
+    static func == (lhs: EC2Instance, rhs: EC2Instance) -> Bool {
+        return lhs.id == rhs.id &&
+               lhs.instanceType == rhs.instanceType &&
+               lhs.state == rhs.state &&
+               lhs.name == rhs.name &&
+               lhs.launchTime == rhs.launchTime &&
+               lhs.publicIP == rhs.publicIP &&
+               lhs.privateIP == rhs.privateIP &&
+               lhs.autoStopEnabled == rhs.autoStopEnabled &&
+               lhs.countdown == rhs.countdown &&
+               lhs.stateTransitionTime == rhs.stateTransitionTime &&
+               lhs.hourlyRate == rhs.hourlyRate &&
+               lhs.runtime == rhs.runtime &&
+               lhs.currentCost == rhs.currentCost &&
+               lhs.projectedDailyCost == rhs.projectedDailyCost &&
+               lhs.region == rhs.region
+    }
     
     init(id: String, instanceType: String, state: InstanceState, name: String?, launchTime: Date?, publicIP: String?, privateIP: String?, autoStopEnabled: Bool, countdown: String?, stateTransitionTime: Date?, hourlyRate: Double, runtime: Int, currentCost: Double, projectedDailyCost: Double, region: String) {
         self.id = id

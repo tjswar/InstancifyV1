@@ -15,6 +15,9 @@
 		B74602CF2D46C92A005068C4 /* InstancifyWidget.intentdefinition in Sources */ = {isa = PBXBuildFile; fileRef = B74602CE2D46C92A005068C4 /* InstancifyWidget.intentdefinition */; };
 		B74602D02D46C92A005068C4 /* InstancifyWidget.intentdefinition in Sources */ = {isa = PBXBuildFile; fileRef = B74602CE2D46C92A005068C4 /* InstancifyWidget.intentdefinition */; };
 		B746FF5C2D45F7B4005068C4 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B746FF5B2D45F7B4005068C4 /* SwiftUI.framework */; };
+		B76995C62D5BDCBE0079DC28 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = B76995C52D5BDCBE0079DC28 /* FirebaseFirestore */; };
+		B76995C82D5C57180079DC28 /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = B76995C72D5C57180079DC28 /* FirebaseFunctions */; };
+		B76995CA2D5D10920079DC28 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = B76995C92D5D10920079DC28 /* FirebaseAuth */; };
 		B77EAD9A2D5617A200758D05 /* JWTKit in Frameworks */ = {isa = PBXBuildFile; productRef = B77EAD992D5617A200758D05 /* JWTKit */; };
 		B7EE084E2D54669B006BF2A7 /* KeychainAccess in Frameworks */ = {isa = PBXBuildFile; productRef = B7EE084D2D54669B006BF2A7 /* KeychainAccess */; };
 		B7EE08502D5466A9006BF2A7 /* KeychainAccess in Frameworks */ = {isa = PBXBuildFile; productRef = B7EE084F2D5466A9006BF2A7 /* KeychainAccess */; };
@@ -98,6 +101,7 @@
 		B746FF592D45F7B3005068C4 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		B746FF5B2D45F7B4005068C4 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		B746FF712D45F959005068C4 /* InstancifyWidgetsExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = InstancifyWidgetsExtension.entitlements; sourceTree = "<group>"; };
+		B7DE2BAA2D5AC8F6008A2A24 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ContentView.swift; path = Instancify/Views/ContentView.swift; sourceTree = "<group>"; };
 		B7EE08642D546760006BF2A7 /* SharedConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedConfig.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -145,12 +149,15 @@
 				B7EE085C2D546720006BF2A7 /* AWSCloudWatch in Frameworks */,
 				B7EE08572D5466D0006BF2A7 /* FirebaseMessaging in Frameworks */,
 				B7EE085E2D546720006BF2A7 /* AWSDynamoDB in Frameworks */,
+				B76995C82D5C57180079DC28 /* FirebaseFunctions in Frameworks */,
 				B7EE08622D546720006BF2A7 /* AWSS3 in Frameworks */,
 				B7EE08602D546720006BF2A7 /* AWSEC2 in Frameworks */,
 				B77EAD9A2D5617A200758D05 /* JWTKit in Frameworks */,
 				B7EE08532D5466D0006BF2A7 /* FirebaseAnalytics in Frameworks */,
 				B7EE08552D5466D0006BF2A7 /* FirebaseCore in Frameworks */,
 				B7EE084E2D54669B006BF2A7 /* KeychainAccess in Frameworks */,
+				B76995CA2D5D10920079DC28 /* FirebaseAuth in Frameworks */,
+				B76995C62D5BDCBE0079DC28 /* FirebaseFirestore in Frameworks */,
 				B7EE085A2D546720006BF2A7 /* AWSAuthUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -192,6 +199,7 @@
 		B746FBFC2D45EEF2005068C4 = {
 			isa = PBXGroup;
 			children = (
+				B7DE2BAA2D5AC8F6008A2A24 /* ContentView.swift */,
 				B746FF712D45F959005068C4 /* InstancifyWidgetsExtension.entitlements */,
 				B74602CE2D46C92A005068C4 /* InstancifyWidget.intentdefinition */,
 				B74602CA2D46C101005068C4 /* InstancifyWidgets.swift */,
@@ -269,6 +277,9 @@
 				B7EE085F2D546720006BF2A7 /* AWSEC2 */,
 				B7EE08612D546720006BF2A7 /* AWSS3 */,
 				B77EAD992D5617A200758D05 /* JWTKit */,
+				B76995C52D5BDCBE0079DC28 /* FirebaseFirestore */,
+				B76995C72D5C57180079DC28 /* FirebaseFunctions */,
+				B76995C92D5D10920079DC28 /* FirebaseAuth */,
 			);
 			productName = Instancify;
 			productReference = B746FC052D45EEF2005068C4 /* Instancify.app */;
@@ -897,6 +908,21 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		B76995C52D5BDCBE0079DC28 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B7EE08512D5466D0006BF2A7 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+		B76995C72D5C57180079DC28 /* FirebaseFunctions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B7EE08512D5466D0006BF2A7 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFunctions;
+		};
+		B76995C92D5D10920079DC28 /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B7EE08512D5466D0006BF2A7 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
 		B77EAD992D5617A200758D05 /* JWTKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = B77EAD982D5617A200758D05 /* XCRemoteSwiftPackageReference "jwt-kit" */;

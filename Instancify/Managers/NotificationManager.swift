@@ -1,20 +1,27 @@
 import Foundation
+import UIKit
+import FirebaseMessaging
 import UserNotifications
 
+// Wrapper struct to make notifications codable
+private struct NotificationEntry: Codable {
+    let notification: NotificationType
+    let timestamp: Date
+}
+
 @MainActor
-class NotificationManager: NSObject, ObservableObject {
+class NotificationManager: ObservableObject {
     static let shared = NotificationManager()
     @Published var pendingNotifications: [(notification: NotificationType, timestamp: Date)] = []
     @Published private(set) var isAuthorized = false
     @Published var mutedInstanceIds: Set<String> = []
     
     private let cleanupInterval: TimeInterval = 24 * 60 * 60 // 24 hours
+    private let notificationService = FirebaseNotificationService.shared
     private var lastCleanupTime: Date?
     
-    private override init() {
-        super.init()
+    private init() {
         Task {
-            await setupNotificationCategories()
             await requestAuthorization()
             await loadNotifications()
             await cleanupOldNotifications()
@@ -28,227 +35,115 @@ class NotificationManager: NSObject, ObservableObject {
         }
     }
     
-    private func setupNotificationCategories() async {
-        let stopAction = UNNotificationAction(
-            identifier: "STOP_INSTANCE",
-            title: "Stop Instance",
-            options: [.destructive]
-        )
-        
-        let muteAction = UNNotificationAction(
-            identifier: "MUTE_INSTANCE",
-            title: "Mute Notifications",
-            options: []
-        )
-        
-        let instanceCategory = UNNotificationCategory(
-            identifier: "INSTANCE_NOTIFICATION",
-            actions: [stopAction, muteAction],
-            intentIdentifiers: [],
-            options: []
-        )
-        
-        let center = UNUserNotificationCenter.current()
-        center.delegate = self
-        center.setNotificationCategories([instanceCategory])
-    }
-    
     private func requestAuthorization() async {
         do {
-            let settings = await UNUserNotificationCenter.current().notificationSettings()
-            
-            switch settings.authorizationStatus {
-            case .notDetermined:
-                let granted = try await UNUserNotificationCenter.current().requestAuthorization(
-                    options: [.alert, .sound, .badge]
-                )
-                isAuthorized = granted
-                
-            case .authorized:
-                isAuthorized = true
-                
-            case .denied:
-                isAuthorized = false
-                
-            case .provisional, .ephemeral:
-                isAuthorized = true
-                
-            @unknown default:
-                isAuthorized = false
-            }
+            let granted = try await notificationService.requestAuthorization()
+            isAuthorized = granted
         } catch {
             isAuthorized = false
         }
     }
     
-    func sendNotification(type: NotificationType) {
-        guard isAuthorized else { return }
-        
-        // Check if notifications are muted for this instance
-        if let instanceId = type.instanceId, mutedInstanceIds.contains(instanceId) {
-            return
+    private func loadNotifications() async {
+        // Load notifications from UserDefaults
+        if let data = UserDefaults.standard.data(forKey: "pendingNotifications"),
+           let entries = try? JSONDecoder().decode([NotificationEntry].self, from: data) {
+            pendingNotifications = entries.map { ($0.notification, $0.timestamp) }
         }
-        
-        let content = UNMutableNotificationContent()
-        content.title = type.title
-        content.body = type.body
-        content.sound = .default
-        content.interruptionLevel = .timeSensitive
-        content.categoryIdentifier = "INSTANCE_NOTIFICATION"
-        content.userInfo = [
-            "instanceId": type.instanceId ?? "",
-            "timestamp": Date().timeIntervalSince1970,
-            "type": String(describing: type)
-        ]
-        
-        // Add to pending notifications with timestamp
-        let timestamp = Date()
-        pendingNotifications.insert((notification: type, timestamp: timestamp), at: 0)
-        saveNotifications()
-        
-        let request = UNNotificationRequest(
-            identifier: type.id,
-            content: content,
-            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
-        )
-        
-        Task {
-            do {
-                try await UNUserNotificationCenter.current().add(request)
-                HapticManager.notification(.success)
-            } catch {
-                // Remove from pending if failed to schedule
-                pendingNotifications.removeAll { $0.notification.id == type.id }
-                saveNotifications()
-            }
-        }
-    }
-    
-    func muteInstance(_ instanceId: String) {
-        mutedInstanceIds.insert(instanceId)
-        // Remove any pending notifications for this instance
-        pendingNotifications.removeAll { $0.notification.instanceId == instanceId }
-        Task {
-            let center = UNUserNotificationCenter.current()
-            await center.removeDeliveredNotifications(withIdentifiers: pendingNotifications.filter { $0.notification.instanceId == instanceId }.map { $0.notification.id })
-        }
-    }
-    
-    func unmuteInstance(_ instanceId: String) {
-        mutedInstanceIds.remove(instanceId)
     }
     
     private func cleanupOldNotifications() async {
         let now = Date()
-        guard lastCleanupTime == nil || now.timeIntervalSince(lastCleanupTime!) >= cleanupInterval else {
+        if let lastCleanup = lastCleanupTime,
+           now.timeIntervalSince(lastCleanup) < cleanupInterval {
             return
         }
         
-        let twentyFourHoursAgo = now.addingTimeInterval(-cleanupInterval)
-        pendingNotifications.removeAll { $0.timestamp < twentyFourHoursAgo }
-        
+        pendingNotifications.removeAll { now.timeIntervalSince($0.timestamp) > cleanupInterval }
         lastCleanupTime = now
+        
+        // Save updated notifications
         saveNotifications()
-        
-        // Also cleanup delivered notifications
-        let center = UNUserNotificationCenter.current()
-        let delivered = await center.deliveredNotifications()
-        let oldNotifications = delivered.filter { notification in
-            if let timestamp = notification.request.content.userInfo["timestamp"] as? TimeInterval {
-                return Date(timeIntervalSince1970: timestamp) < twentyFourHoursAgo
-            }
-            return false
-        }
-        
-        if !oldNotifications.isEmpty {
-            center.removeDeliveredNotifications(withIdentifiers: oldNotifications.map { $0.request.identifier })
-        }
     }
     
-    private func saveNotifications() {
-        let notificationsData = pendingNotifications.map { (notification, timestamp) in
-            NotificationData(notification: notification, timestamp: timestamp)
-        }
-        if let encoded = try? JSONEncoder().encode(notificationsData) {
-            UserDefaults.standard.set(encoded, forKey: "PendingNotifications")
-        }
+    func addNotification(_ notification: NotificationType) {
+        pendingNotifications.append((notification, Date()))
+        saveNotifications()
     }
     
-    private func loadNotifications() async {
-        if let data = UserDefaults.standard.data(forKey: "PendingNotifications"),
-           let decoded = try? JSONDecoder().decode([NotificationData].self, from: data) {
-            pendingNotifications = decoded.map { ($0.notification, $0.timestamp) }
-            // Cleanup old notifications right after loading
-            await cleanupOldNotifications()
-        }
+    func removeNotification(at index: Int) {
+        pendingNotifications.remove(at: index)
+        saveNotifications()
     }
     
     func clearNotifications() {
         pendingNotifications.removeAll()
         saveNotifications()
-        Task {
-            let center = UNUserNotificationCenter.current()
-            center.removeAllPendingNotificationRequests()
-            center.removeAllDeliveredNotifications()
+    }
+    
+    private func saveNotifications() {
+        let entries = pendingNotifications.map { NotificationEntry(notification: $0.notification, timestamp: $0.timestamp) }
+        if let data = try? JSONEncoder().encode(entries) {
+            UserDefaults.standard.set(data, forKey: "pendingNotifications")
         }
     }
     
-    func removeNotification(at index: Int) {
-        guard index < pendingNotifications.count else { return }
-        let notification = pendingNotifications[index].notification
-        pendingNotifications.remove(at: index)
-        saveNotifications()
+    func muteInstance(_ instanceId: String) {
+        mutedInstanceIds.insert(instanceId)
+        UserDefaults.standard.set(Array(mutedInstanceIds), forKey: "mutedInstanceIds")
+    }
+    
+    func unmuteInstance(_ instanceId: String) {
+        mutedInstanceIds.remove(instanceId)
+        UserDefaults.standard.set(Array(mutedInstanceIds), forKey: "mutedInstanceIds")
+    }
+    
+    func isInstanceMuted(_ instanceId: String) -> Bool {
+        mutedInstanceIds.contains(instanceId)
+    }
+    
+    func sendNotification(type: NotificationType) {
+        addNotification(type)
+    }
+    
+    // Add instance state notification method
+    func sendInstanceStateNotification(instanceId: String, instanceName: String?, state: InstanceState) async throws {
+        let notification = NotificationType.instanceStateChanged(
+            instanceId: instanceId,
+            name: instanceName ?? instanceId,
+            from: "unknown",
+            to: state.rawValue
+        )
+        addNotification(notification)
+    }
+    
+    func scheduleNotification(for instance: EC2Instance, at date: Date) {
+        let content = UNMutableNotificationContent()
+        content.title = "Instance Alert"
+        content.body = "Your instance \(instance.id) will be stopped soon"
+        content.sound = .default
+        content.userInfo = [
+            "instanceId": instance.id,
+            "region": instance.region
+        ]
         
-        Task {
-            let center = UNUserNotificationCenter.current()
-            center.removePendingNotificationRequests(withIdentifiers: [notification.id])
-            center.removeDeliveredNotifications(withIdentifiers: [notification.id])
-        }
-    }
-    
-    func removePendingNotification(withIdentifier identifier: String) async {
-        let center = UNUserNotificationCenter.current()
-        center.removePendingNotificationRequests(withIdentifiers: [identifier])
-        print("  🧹 Removed pending notification: \(identifier)")
-    }
-}
-
-extension NotificationManager: UNUserNotificationCenterDelegate {
-    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        let instanceId = response.notification.request.content.userInfo["instanceId"] as? String ?? ""
+        let trigger = UNCalendarNotificationTrigger(
+            dateMatching: Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date),
+            repeats: false
+        )
         
-        switch response.actionIdentifier {
-        case "STOP_INSTANCE":
-            if !instanceId.isEmpty {
-                // Stop the instance
-                Task {
-                    do {
-                        try await EC2Service.shared.stopInstance(instanceId)
-                        print("✅ Instance \(instanceId) stopped via notification action")
-                    } catch {
-                        print("❌ Failed to stop instance: \(error.localizedDescription)")
-                    }
-                }
+        let request = UNNotificationRequest(
+            identifier: "instance_alert_\(instance.id)",
+            content: content,
+            trigger: trigger
+        )
+        
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("❌ Failed to schedule notification: \(error.localizedDescription)")
+            } else {
+                print("✅ Notification scheduled for \(date)")
             }
-            
-        case "MUTE_INSTANCE":
-            if !instanceId.isEmpty {
-                muteInstance(instanceId)
-                print("🔕 Muted notifications for instance \(instanceId)")
-            }
-            
-        default:
-            break
         }
     }
-    
-    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        return [.banner, .sound, .badge]
-    }
-}
-
-// Helper struct for encoding/decoding notifications with timestamps
-private struct NotificationData: Codable {
-    let notification: NotificationType
-    let timestamp: Date
 } 

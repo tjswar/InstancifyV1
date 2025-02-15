@@ -18,41 +18,58 @@ class AWSManager {
         let credentialsProvider = AWSStaticCredentialsProvider(accessKey: accessKey, secretKey: secretKey)
         
         // Create the service configuration
-        let configuration = AWSServiceConfiguration(
+        guard let configuration = AWSServiceConfiguration(
             region: region,
             credentialsProvider: credentialsProvider
-        )
+        ) else {
+            throw AWSError.invalidConfiguration("Failed to create AWS configuration")
+        }
         
         // Set default configuration
         AWSServiceManager.default().defaultServiceConfiguration = configuration
         
-        // Register services with explicit configurations
-        AWSEC2.register(with: configuration!, forKey: serviceKey)
+        // Register EC2 service
+        AWSEC2.register(with: configuration, forKey: serviceKey)
         
         // Store connection details
         currentConnection = AWSConnection(
-            name: "AWS Connection",
+            id: UUID(),
+            name: "Default",
             accessKeyId: accessKey,
             secretKey: secretKey,
             region: region.stringValue
         )
         
-        // Test the connection with a simple EC2 request
-        let ec2 = AWSEC2(forKey: serviceKey)
-        let request = AWSEC2DescribeInstancesRequest()!
+        print("✅ AWS services configured successfully")
+    }
+    
+    func validateCredentials() async throws {
+        let ec2 = AWSEC2.default()
         
-        // Test the connection
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        guard let request = AWSEC2DescribeInstancesRequest() else {
+            throw AWSError.serviceError("Failed to create describe instances request")
+        }
+        
+        return try await withCheckedThrowingContinuation { continuation in
             ec2.describeInstances(request) { response, error in
-                if let error = error {
-                    print("AWS Configuration Test Error: \(error)")
-                    continuation.resume(throwing: AWSError.serviceError(error.localizedDescription))
-                } else {
-                    print("AWS Configuration Test Successful")
-                    continuation.resume(returning: ())
+                if error != nil {
+                    continuation.resume(throwing: AWSError.invalidCredentials)
+                    return
                 }
+                continuation.resume()
             }
         }
+    }
+    
+    func clearConfiguration() {
+        // Unregister services
+        AWSEC2.remove(forKey: serviceKey)
+        
+        // Clear current connection
+        currentConnection = nil
+        
+        // Clear AWS configuration
+        AWSServiceManager.default().defaultServiceConfiguration = nil
     }
     
     func fetchResources() async throws -> [AWSResource] {
@@ -82,7 +99,9 @@ class AWSManager {
         }
         
         let ec2 = AWSEC2(forKey: serviceKey)
-        let request = AWSEC2DescribeInstancesRequest()!
+        guard let request = AWSEC2DescribeInstancesRequest() else {
+            throw AWSError.serviceError("Failed to create describe instances request")
+        }
         
         return try await withCheckedThrowingContinuation { continuation in
             ec2.describeInstances(request) { response, error in
@@ -132,19 +151,7 @@ class AWSManager {
             throw AWSError.notConfigured
         }
         
-        let awsRegion: AWSRegionType
-        switch region {
-        case "us-east-1": awsRegion = .USEast1
-        case "us-east-2": awsRegion = .USEast2
-        case "us-west-1": awsRegion = .USWest1
-        case "us-west-2": awsRegion = .USWest2
-        case "eu-west-1": awsRegion = .EUWest1
-        case "eu-central-1": awsRegion = .EUCentral1
-        case "ap-southeast-1": awsRegion = .APSoutheast1
-        case "ap-southeast-2": awsRegion = .APSoutheast2
-        case "ap-northeast-1": awsRegion = .APNortheast1
-        default: throw AWSError.invalidRegion
-        }
+        let awsRegion = mapRegionToAWSType(region)
         
         try await configure(
             accessKey: connection.accessKeyId,
@@ -154,20 +161,7 @@ class AWSManager {
     }
     
     func validateConnection(accessKey: String, secretKey: String, region: String) async throws -> Bool {
-        let awsRegion: AWSRegionType
-        switch region {
-        case "us-east-1": awsRegion = .USEast1
-        case "us-east-2": awsRegion = .USEast2
-        case "us-west-1": awsRegion = .USWest1
-        case "us-west-2": awsRegion = .USWest2
-        case "eu-west-1": awsRegion = .EUWest1
-        case "eu-central-1": awsRegion = .EUCentral1
-        case "ap-southeast-1": awsRegion = .APSoutheast1
-        case "ap-southeast-2": awsRegion = .APSoutheast2
-        case "ap-northeast-1": awsRegion = .APNortheast1
-        default: throw AWSError.invalidRegion
-        }
-        
+        let awsRegion = mapRegionToAWSType(region)
         try await configure(accessKey: accessKey, secretKey: secretKey, region: awsRegion)
         
         // Try to list EC2 instances as a validation
@@ -235,19 +229,7 @@ class AWSManager {
         
         print("Attempting to stop instance: \(instanceId) with force stop")
         
-        // Convert region string to AWSRegionType
-        let awsRegion: AWSRegionType
-        switch connection.region {
-        case "us-east-1": awsRegion = .USEast1
-        case "us-east-2": awsRegion = .USEast2
-        case "us-west-1": awsRegion = .USWest1
-        case "us-west-2": awsRegion = .USWest2
-        case "eu-west-1": awsRegion = .EUWest1
-        case "eu-central-1": awsRegion = .EUCentral1
-        case "ap-southeast-1": awsRegion = .APSoutheast1
-        case "ap-southeast-2": awsRegion = .APSoutheast2
-        default: awsRegion = .USEast1 // Default to US East 1
-        }
+        let awsRegion = mapRegionToAWSType(connection.region)
         
         // Create a new configuration with current credentials
         let credentialsProvider = AWSStaticCredentialsProvider(
@@ -366,24 +348,7 @@ class AWSManager {
     
     // Helper function to convert region string to AWSRegionType
     private func getAWSRegion(from region: String) -> AWSRegionType {
-        switch region {
-        case "us-east-1": return .USEast1
-        case "us-east-2": return .USEast2
-        case "us-west-1": return .USWest1
-        case "us-west-2": return .USWest2
-        case "eu-west-1": return .EUWest1
-        case "eu-central-1": return .EUCentral1
-        case "ap-southeast-1": return .APSoutheast1
-        case "ap-southeast-2": return .APSoutheast2
-        case "ap-northeast-1": return .APNortheast1
-        default: return .USEast1
-        }
-    }
-    
-    // Add clear configuration method
-    func clearConfiguration() {
-        currentConnection = nil
-        AWSServiceManager.default().defaultServiceConfiguration = nil
+        mapRegionToAWSType(region)
     }
     
     // Add fetch resources across regions method
@@ -403,21 +368,45 @@ class AWSManager {
         try await switchRegion(connection.region)
         return allResources
     }
+    
+    func configureAWS() {
+        // Remove this method as it uses outdated AWS client code
+    }
+    
+    func configureAWSServices() async throws {
+        guard let connection = currentConnection else {
+            throw AWSError.notConfigured
+        }
+        
+        // Create credentials provider
+        let credentialsProvider = AWSStaticCredentialsProvider(
+            accessKey: connection.accessKeyId,
+            secretKey: connection.secretKey
+        )
+        
+        // Get region type
+        let regionType = mapRegionToAWSType(connection.region)
+        
+        // Create configuration
+        guard let configuration = AWSServiceConfiguration(
+            region: regionType,
+            credentialsProvider: credentialsProvider
+        ) else {
+            throw AWSError.invalidConfiguration("Failed to create AWS configuration")
+        }
+        
+        // Set default configuration
+        AWSServiceManager.default().defaultServiceConfiguration = configuration
+        
+        // Register EC2 service
+        AWSEC2.register(with: configuration, forKey: serviceKey)
+        
+        print("✅ AWS services configured successfully")
+    }
 }
 
 extension AWSRegionType {
     static func fromString(_ region: String) -> AWSRegionType {
-        switch region {
-        case "us-east-1": return .USEast1
-        case "us-east-2": return .USEast2
-        case "us-west-1": return .USWest1
-        case "us-west-2": return .USWest2
-        case "eu-west-1": return .EUWest1
-        case "eu-central-1": return .EUCentral1
-        case "ap-southeast-1": return .APSoutheast1
-        case "ap-southeast-2": return .APSoutheast2
-        case "ap-northeast-1": return .APNortheast1
-        default: return .USEast1
-        }
+        mapRegionToAWSType(region)
     }
 }

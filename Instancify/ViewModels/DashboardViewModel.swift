@@ -6,6 +6,12 @@ import SwiftUI
 
 @MainActor
 class DashboardViewModel: ObservableObject {
+    private static let _shared = DashboardViewModel()
+    
+    static var shared: DashboardViewModel {
+        return _shared
+    }
+    
     @Published private(set) var instances: [EC2Instance] = []
     @Published private(set) var costMetrics: CostMetrics?
     @Published private(set) var isLoading = false
@@ -109,6 +115,56 @@ class DashboardViewModel: ObservableObject {
         do {
             async let instancesTask = ec2Service.fetchInstances()
             let fetchedInstances = try await instancesTask
+            
+            // Track existing instance IDs and states for change detection
+            let existingInstanceStates = Dictionary(uniqueKeysWithValues: instances.map { ($0.id, $0.state) })
+            
+            // Check for state changes and apply alerts
+            let notificationSettings = NotificationSettingsViewModel.shared
+            let alertsEnabled = notificationSettings.isRuntimeAlertsEnabled(for: currentRegion)
+            let hasAlerts = !notificationSettings.getAlertsForRegion(currentRegion).isEmpty
+            
+            if alertsEnabled && hasAlerts {
+                print("\n📝 Processing alerts for region \(currentRegion)")
+                print("  • Alerts enabled: \(alertsEnabled)")
+                print("  • Has alerts: \(hasAlerts)")
+                
+                for instance in fetchedInstances {
+                    if instance.state == .running {
+                        let oldState = existingInstanceStates[instance.id]
+                        let isNewInstance = oldState == nil
+                        let stateChanged = oldState != nil && oldState != .running
+                        
+                        if isNewInstance {
+                            print("\n📝 New running instance detected: \(instance.id)")
+                            print("  • Name: \(instance.name ?? "unnamed")")
+                            print("  • Launch Time: \(instance.launchTime?.description ?? "unknown")")
+                            
+                            await notificationSettings.handleInstanceStateChange(
+                                instanceId: instance.id,
+                                instanceName: instance.name ?? instance.id,
+                                region: currentRegion,
+                                state: "running",
+                                launchTime: instance.launchTime
+                            )
+                        } else if stateChanged {
+                            print("\n📝 Instance state changed to running: \(instance.id)")
+                            print("  • Name: \(instance.name ?? "unnamed")")
+                            print("  • Previous state: \(oldState?.rawValue ?? "unknown")")
+                            print("  • Launch Time: \(instance.launchTime?.description ?? "unknown")")
+                            
+                            await notificationSettings.handleInstanceStateChange(
+                                instanceId: instance.id,
+                                instanceName: instance.name ?? instance.id,
+                                region: currentRegion,
+                                state: "running",
+                                launchTime: instance.launchTime
+                            )
+                        }
+                    }
+                }
+            }
+            
             instances = fetchedInstances
             
             // Fetch cost metrics after we have instances
@@ -237,5 +293,46 @@ class DashboardViewModel: ObservableObject {
             monthlyCost: (monthlyCost * 100).rounded() / 100,
             projectedCost: (projected * 100).rounded() / 100
         )
+    }
+    
+    func startInstance(_ instanceId: String) async throws {
+        isLoading = true
+        isPerformingAction = true
+        defer { 
+            isLoading = false
+            isPerformingAction = false 
+        }
+        
+        do {
+            try await ec2Service.startInstance(instanceId)
+            
+            // First refresh to get the latest state
+            await refresh()
+            
+            // Get instance details and apply alerts
+            if let instance = instances.first(where: { $0.id == instanceId }) {
+                // Explicitly check if alerts should be applied
+                let notificationSettings = NotificationSettingsViewModel.shared
+                let alertsEnabled = notificationSettings.isRuntimeAlertsEnabled(for: currentRegion)
+                let hasAlerts = !notificationSettings.getAlertsForRegion(currentRegion).isEmpty
+                
+                if alertsEnabled && hasAlerts {
+                    print("📝 Applying alerts to newly started instance: \(instanceId)")
+                    // Use instance.launchTime instead of current date to ensure correct timing
+                    await notificationSettings.handleInstanceStateChange(
+                        instanceId: instanceId,
+                        instanceName: instance.name ?? instanceId,
+                        region: currentRegion,
+                        state: "running",
+                        launchTime: instance.launchTime
+                    )
+                } else {
+                    print("ℹ️ Skipping alerts for instance \(instanceId): enabled=\(alertsEnabled), hasAlerts=\(hasAlerts)")
+                }
+            }
+        } catch {
+            self.error = error.localizedDescription
+            throw error
+        }
     }
 } 

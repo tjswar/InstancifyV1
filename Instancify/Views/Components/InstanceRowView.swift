@@ -635,11 +635,18 @@ struct InstanceRowView: View {
     }
     
     private func sendInstanceStateNotification(state: String) {
-        sendNotification(
-            title: "Instance Status",
-            body: "Instance is now \(state)",
-            identifier: "instance_\(state)"
-        )
+        Task {
+            do {
+                try await FirebaseNotificationService.shared.sendInstanceStateNotification(
+                    instanceId: instance.id,
+                    instanceName: instance.name ?? instance.id,
+                    oldState: instance.state.rawValue,
+                    newState: state
+                )
+            } catch {
+                print("❌ Failed to send state notification: \(error)")
+            }
+        }
     }
     
     private func calculateRuntime() -> TimeInterval {

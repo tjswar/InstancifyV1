@@ -6,38 +6,44 @@ struct ContentView: View {
     @StateObject private var appearanceViewModel = AppearanceSettingsViewModel.shared
     @StateObject private var notificationManager = NotificationManager.shared
     @StateObject private var notificationSettings = NotificationSettingsViewModel.shared
-    @StateObject private var dashboardViewModel = DashboardViewModel()
+    @StateObject private var dashboardViewModel = DashboardViewModel.shared
     @State private var selectedTab = 0
     
     var body: some View {
-        NavigationView {
-            ZStack {
-                if !authManager.isAuthenticated {
-                    AuthenticationView()
-                        .environmentObject(authManager)
-                        .environmentObject(appearanceViewModel)
-                } else {
-                    if appLockService.isLocked {
-                        LockScreenView()
-                            .environmentObject(appLockService)
-                            .environmentObject(appearanceViewModel)
-                    } else {
-                        MainTabView(selectedTab: $selectedTab)
-                            .tint(appearanceViewModel.currentAccentColor)
-                            .environmentObject(authManager)
-                            .environmentObject(appearanceViewModel)
-                            .environmentObject(notificationManager)
-                            .environmentObject(notificationSettings)
-                            .environmentObject(dashboardViewModel)
-                    }
-                }
+        Group {
+            if ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1" {
+                // Preview-safe content
+                previewContent
+            } else {
+                // Full app content
+                mainContent
             }
         }
         .environmentObject(appearanceViewModel)
         .environmentObject(notificationManager)
         .environmentObject(notificationSettings)
         .environmentObject(dashboardViewModel)
+        .environmentObject(authManager)
+        .environmentObject(appLockService)
         .tint(appearanceViewModel.currentAccentColor)
+        .alertScheduledPopup()
+    }
+    
+    private var mainContent: some View {
+        NavigationView {
+            ZStack {
+                if !authManager.isAuthenticated {
+                    AuthenticationView()
+                } else {
+                    if appLockService.isLocked {
+                        LockScreenView()
+                    } else {
+                        MainTabView(selectedTab: $selectedTab)
+                            .tint(appearanceViewModel.currentAccentColor)
+                    }
+                }
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
             if appLockService.isPasswordSet() {
                 appLockService.lock()
@@ -48,13 +54,15 @@ struct ContentView: View {
         }
         .animation(.easeInOut, value: appLockService.isLocked)
     }
+    
+    private var previewContent: some View {
+        NavigationView {
+            MainTabView(selectedTab: .constant(0))
+                .tint(Color.blue)  // Use static color instead of dynamic
+        }
+    }
 }
 
 #Preview {
     ContentView()
-        .environmentObject(AuthenticationManager.shared)
-        .environmentObject(NotificationManager.shared)
-        .environmentObject(AppearanceSettingsViewModel.shared)
-        .environmentObject(AppLockService.shared)
-        .environmentObject(NotificationSettingsViewModel.shared)
 }

@@ -13,7 +13,7 @@ struct DashboardContent: View {
             mainContent
                 .sheet(isPresented: $showRuntimeAlerts) {
                     NavigationView {
-                        RuntimeAlertsView(currentRegion: viewModel.currentRegion)
+                        RuntimeAlertsView(region: viewModel.currentRegion)
                             .environmentObject(NotificationSettingsViewModel.shared)
                     }
                 }
@@ -147,24 +147,19 @@ struct DashboardContent: View {
                     // Instances List
                     if !viewModel.instances.isEmpty {
                         VStack(alignment: .leading, spacing: 16) {
-                            HStack {
-                                HStack(spacing: 8) {
-                                    Text("Instances")
-                                        .font(.headline)
-                                    Text("•")
-                                        .foregroundColor(.secondary)
-                                    Text(viewModel.currentRegion)
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
-                                }
-                                Spacer()
-                                Button {
-                                    showRuntimeAlerts = true
-                                } label: {
-                                    Image(systemName: "timer.circle")
-                                        .symbolRenderingMode(.hierarchical)
-                                        .foregroundStyle(.accent)
-                                }
+                            // Region Runtime Alerts Section
+                            RegionRuntimeAlertsView(viewModel: viewModel)
+                                .environmentObject(NotificationSettingsViewModel.shared)
+                                .padding(.horizontal)
+                            
+                            HStack(spacing: 8) {
+                                Text("Instances")
+                                    .font(.headline)
+                                Text("•")
+                                    .foregroundColor(.secondary)
+                                Text(viewModel.currentRegion)
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
                             }
                             .padding(.horizontal)
                             

@@ -25,17 +25,22 @@
 	<true/>
 	<key>NSCriticalAlertEnabled</key>
 	<true/>
-	<key>NSUserActivityTypes</key>
-	<array>
-		<string>InstancifyWidgetIntent</string>
-	</array>
-	<key>UIApplicationExitsOnSuspend</key>
-	<false/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
 		<string>processing</string>
 		<string>remote-notification</string>
 	</array>
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>armv7</string>
+		<string>push-notification</string>
+	</array>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>InstancifyWidgetIntent</string>
+	</array>
+	<key>UIApplicationExitsOnSuspend</key>
+	<false/>
 </dict>
 </plist>

@@ -63,6 +63,14 @@ class EC2Service: ObservableObject {
     }
     private var autoStopUpdateTimer: Timer?
     
+    private var currentRegion: String = "us-west-2" // Default region
+    
+    #if DEBUG
+    private var isPreview: Bool {
+        ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
+    }
+    #endif
+    
     private func setupFirstLaunchDate() {
         if UserDefaults.standard.object(forKey: "appFirstLaunchDate") == nil {
             UserDefaults.standard.set(Date(), forKey: "appFirstLaunchDate")
@@ -71,6 +79,42 @@ class EC2Service: ObservableObject {
     
     private init() {
         print("\n🔧 Initializing EC2Service...")
+        
+        // Initialize ec2 with a default value first
+        let defaultConfig = AWSServiceConfiguration(
+            region: .USEast1,
+            credentialsProvider: AWSAnonymousCredentialsProvider()
+        )!
+        AWSServiceManager.default().defaultServiceConfiguration = defaultConfig
+        AWSEC2.register(with: defaultConfig, forKey: "DefaultKey")
+        self.ec2 = AWSEC2(forKey: "DefaultKey")
+        
+        #if DEBUG
+        if isPreview {
+            print("🔧 EC2Service: Running in preview mode")
+            // Initialize with mock data for preview
+            self.instances = [
+                EC2Instance(
+                    id: "i-1234567890abcdef0",
+                    instanceType: "t2.micro",
+                    state: .running,
+                    name: "Preview Instance",
+                    launchTime: Date(),
+                    publicIP: "1.2.3.4",
+                    privateIP: "10.0.0.1",
+                    autoStopEnabled: false,
+                    countdown: nil,
+                    stateTransitionTime: nil,
+                    hourlyRate: 0.0116,
+                    runtime: 0,
+                    currentCost: 0.0,
+                    projectedDailyCost: 0.2784,
+                    region: "us-east-1"
+                )
+            ]
+            return
+        }
+        #endif
         
         // Initialize UserDefaults with app group first
         if let bundleId = Bundle.main.bundleIdentifier {
@@ -82,20 +126,34 @@ class EC2Service: ObservableObject {
             print("❌ Failed to get bundle identifier")
         }
         
-        // Initialize with a temporary configuration first
-        let defaultConfig = AWSServiceConfiguration(
-            region: .USEast1,
-            credentialsProvider: AWSAnonymousCredentialsProvider()
-        )!
-        
-        // Set the default configuration immediately
-        AWSServiceManager.default().defaultServiceConfiguration = defaultConfig
-        
-        // Register EC2 service with this configuration
-        AWSEC2.register(with: defaultConfig, forKey: "DefaultKey")
-        self.ec2 = AWSEC2(forKey: "DefaultKey")
-        
-        print("✅ Initialized EC2 service with default configuration")
+        // Configure AWS with stored credentials
+        Task {
+            do {
+                let credentials = try KeychainManager.shared.retrieveCredentials()
+                let region = try KeychainManager.shared.getRegion()
+                
+                let credentialsProvider = AWSStaticCredentialsProvider(
+                    accessKey: credentials.accessKeyId,
+                    secretKey: credentials.secretAccessKey
+                )
+                
+                let configuration = AWSServiceConfiguration(
+                    region: mapRegionToAWSType(region),
+                    credentialsProvider: credentialsProvider
+                )!
+                
+                // Set the default configuration
+                AWSServiceManager.default().defaultServiceConfiguration = configuration
+                
+                // Then register EC2 service
+                AWSEC2.register(with: configuration, forKey: "DefaultKey")
+                self.ec2 = AWSEC2(forKey: "DefaultKey")
+                
+                print("✅ AWS configured with stored credentials")
+            } catch {
+                print("❌ Failed to configure AWS: \(error)")
+            }
+        }
         
         // Setup timers and monitoring
         setupCostUpdateTimer()
@@ -273,7 +331,7 @@ class EC2Service: ObservableObject {
         let request = AWSEC2StopInstancesRequest()!
         request.instanceIds = instanceIds
         
-        return try await withCheckedThrowingContinuation { [self] (continuation: CheckedContinuation<Void, Error>) in
+        return try await withCheckedThrowingContinuation { [self] continuation in
             ec2.stopInstances(request) { response, error in
                 if let error = error {
                     continuation.resume(throwing: error)
@@ -284,119 +342,124 @@ class EC2Service: ObservableObject {
         }
     }
     
-    func startInstance(_ instanceId: String) async throws {
-        // Create start request
+    func startInstance(_ instanceId: String, region: String? = nil) async throws {
+        // Ensure we have valid credentials
+        let authManager = AuthenticationManager.shared
+        let credentials = try authManager.getAWSCredentials()
+        
+        // Configure AWS services with credentials
+        let credentialsProvider = AWSStaticCredentialsProvider(
+            accessKey: credentials.accessKeyId,
+            secretKey: credentials.secretAccessKey
+        )
+        
+        let configuration = AWSServiceConfiguration(
+            region: authManager.selectedRegion.awsRegionType,
+            credentialsProvider: credentialsProvider
+        )!
+        
+        // Set the default configuration
+        AWSServiceManager.default().defaultServiceConfiguration = configuration
+        
+        // Register EC2 with this configuration
+        AWSEC2.register(with: configuration, forKey: "StartInstance")
+        let ec2Client = AWSEC2(forKey: "StartInstance")
+        
         let request = AWSEC2StartInstancesRequest()!
         request.instanceIds = [instanceId]
         
-        // Get the current state before change
-        let oldState = instances.first(where: { $0.id == instanceId })?.state.rawValue ?? "unknown"
-        
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            ec2.startInstances(request) { response, error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume()
-                }
-            }
-        }
-        
-        // Save activity after successful state change
-        if let instance = instances.first(where: { $0.id == instanceId }) {
-            saveRuntimeRecord(for: instance, fromState: oldState, toState: "running")
+        do {
+            _ = try await ec2Client.startInstances(request)
+            print("✅ Started instance \(instanceId)")
             
-            // Send fun notification when instance is started
-            NotificationManager.shared.sendNotification(
-                type: .instanceStarted(
-                    instanceId: instanceId,
-                    name: generateStartNotificationText(instanceName: instance.name ?? instanceId)
+            // Get updated instance state
+            if let instance = try await self.getInstanceDetails(instanceId) {
+                try await FirebaseNotificationService.shared.sendInstanceStateNotification(
+                    instanceId: instance.id,
+                    instanceName: instance.name ?? instance.id,
+                    oldState: instance.state.rawValue,
+                    newState: "running"
                 )
-            )
+            }
+        } catch {
+            print("❌ Failed to start instance \(instanceId): \(error)")
+            throw error
         }
-        
-        // Post notification to cancel auto-stop timer
-        NotificationCenter.default.post(
-            name: Notification.Name("CancelAutoStop"),
-            object: nil,
-            userInfo: ["instanceId": instanceId]
-        )
     }
     
     func stopInstance(_ instanceId: String, isAutoStop: Bool = false) async throws {
-        HapticManager.notification(.success)
-        
-        // Get the current state before change
-        let oldState = instances.first(where: { $0.id == instanceId })?.state.rawValue ?? "unknown"
-        
-        // Cancel auto-stop timer if this is a manual stop
-        if !isAutoStop {
-            await cancelAutoStop(for: instanceId)
-        }
-        
         let request = AWSEC2StopInstancesRequest()!
         request.instanceIds = [instanceId]
         
-        try await withCheckedThrowingContinuation { [self] (continuation: CheckedContinuation<Void, Error>) in
+        return try await withCheckedThrowingContinuation { continuation in
             ec2.stopInstances(request) { response, error in
                 if let error = error {
                     continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ())
+                    return
                 }
-            }
-        }
-        
-        // Save activity after successful state change
-        if let instance = instances.first(where: { $0.id == instanceId }) {
-            saveRuntimeRecord(for: instance, fromState: oldState, toState: "stopped")
-            
-            // Only send notification if it's a manual stop or if auto-stop warnings are enabled
-            if !isAutoStop || NotificationSettingsViewModel.shared.autoStopWarningsEnabled {
-                NotificationManager.shared.sendNotification(
-                    type: .instanceStopped(
-                        instanceId: instanceId,
-                        name: generateStopNotificationText(
-                            instanceName: instance.name ?? instanceId,
-                            isAutoStop: isAutoStop
+                
+                Task {
+                    // Get instance details for notification
+                    if let instance = try? await self.getInstanceDetails(instanceId) {
+                        try? await FirebaseNotificationService.shared.sendInstanceStateNotification(
+                            instanceId: instance.id,
+                            instanceName: instance.name ?? instance.id,
+                            oldState: instance.state.rawValue,
+                            newState: "stopped"
                         )
-                    )
-                )
-            }
-        }
-        
-        updateInstanceRuntime(instanceId)
-    }
-    
-    func rebootInstance(_ instanceId: String) async throws {
-        HapticManager.notification(.success)
-        let request = AWSEC2RebootInstancesRequest()!
-        request.instanceIds = [instanceId]
-        
-        return try await withCheckedThrowingContinuation { [self] continuation in
-            ec2.rebootInstances(request) { error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ())
+                    }
                 }
+                
+                continuation.resume()
             }
         }
     }
     
-    func terminateInstance(_ instanceId: String) async throws {
-        HapticManager.notification(.success)
+    func terminateInstance(_ instanceId: String, region: String? = nil) async throws {
+        let targetRegion = region ?? currentRegion
         let request = AWSEC2TerminateInstancesRequest()!
         request.instanceIds = [instanceId]
         
-        return try await withCheckedThrowingContinuation { [self] continuation in
-            ec2.terminateInstances(request) { response, error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ())
-                }
+        do {
+            _ = try await AWSEC2.default().terminateInstances(request)
+            print("✅ Terminated instance \(instanceId)")
+            
+            // Get updated instance state
+            if let instance = try await getInstanceDetails(instanceId, region: targetRegion) {
+                try await FirebaseNotificationService.shared.sendInstanceStateNotification(
+                    instanceId: instance.id,
+                    instanceName: instance.name ?? instance.id,
+                    oldState: instance.state.rawValue,
+                    newState: "terminated"
+                )
             }
+        } catch {
+            print("❌ Failed to terminate instance \(instanceId): \(error)")
+            throw error
+        }
+    }
+    
+    func rebootInstance(_ instanceId: String, region: String? = nil) async throws {
+        let targetRegion = region ?? currentRegion
+        let request = AWSEC2RebootInstancesRequest()!
+        request.instanceIds = [instanceId]
+        
+        do {
+            _ = try await AWSEC2.default().rebootInstances(request)
+            print("✅ Rebooted instance \(instanceId)")
+            
+            // Get updated instance state
+            if let instance = try await getInstanceDetails(instanceId, region: targetRegion) {
+                try await FirebaseNotificationService.shared.sendInstanceStateNotification(
+                    instanceId: instanceId,
+                    instanceName: instance.name ?? instance.id,
+                    oldState: instance.state.rawValue,
+                    newState: "running"
+                )
+            }
+        } catch {
+            print("❌ Failed to reboot instance \(instanceId): \(error)")
+            throw error
         }
     }
     
@@ -1189,21 +1252,21 @@ class EC2Service: ObservableObject {
                         AutoStopSettingsService.shared.clearSettings(for: instanceId)
                         
                         // Stop the instance
-                        try await stopInstance(instanceId, isAutoStop: true)
+                        try await stopInstance(instanceId)
                         
                         // Send notification about successful auto-stop
                         try await FirebaseNotificationService.shared.sendInstanceStateNotification(
-                            instanceId: instanceId,
-                            instanceName: instance.name,
-                            state: .stopped
+                            instanceId: instance.id,
+                            instanceName: instance.name ?? instance.id,
+                            oldState: instance.state.rawValue,
+                            newState: "stopped"
                         )
                     } catch {
                         print("  ❌ Failed to stop instance: \(error.localizedDescription)")
                         // Send error notification
                         try? await FirebaseNotificationService.shared.sendErrorNotification(
                             instanceId: instanceId,
-                            instanceName: instance.name,
-                            error: "Failed to auto-stop: \(error.localizedDescription)"
+                            error: error
                         )
                     }
                 }
@@ -1358,7 +1421,7 @@ class EC2Service: ObservableObject {
             print("  • Time has elapsed, stopping instance")
             do {
                 await cancelAutoStop(for: instanceId)
-                try await stopInstance(instanceId, isAutoStop: true)
+                try await stopInstance(instanceId)
             } catch {
                 print("  ❌ Failed to stop instance: \(error.localizedDescription)")
             }
@@ -1491,33 +1554,91 @@ class EC2Service: ObservableObject {
         WidgetService.shared.clearWidgetData(for: instance.region)
     }
     
-    private func handleInstanceStateChange(instance: EC2Instance, oldState: InstanceState, newState: InstanceState) {
-        // Log state change activity
-        InstanceActivity.addActivity(
-            instanceId: instance.id,
-            type: .stateChange(from: oldState.rawValue, to: newState.rawValue),
-            details: "Instance state changed from \(oldState.rawValue) to \(newState.rawValue)"
-        )
-        
-        // Clean up old activities
-        InstanceActivity.cleanupOldActivities(for: instance.id)
-        
-        // Update widget data
+    private func handleInstanceStateChange(_ instance: EC2Instance, region: String) {
         Task {
-            WidgetService.shared.updateWidgetData(for: instance)
+            do {
+                try await InstanceMonitoringService.shared.handleInstanceStateChange(instance, region: region)
+            } catch {
+                print("❌ Failed to handle instance state change: \(error)")
+            }
         }
     }
     
     private func updateInstance(_ instance: EC2Instance, state: InstanceState) {
         if let index = instances.firstIndex(where: { $0.id == instance.id }) {
             let oldState = instances[index].state
-            var updatedInstance = instances[index]
+            let updatedInstance = instances[index]
             updatedInstance.state = state
             instances[index] = updatedInstance
             
             if oldState != state {
-                handleInstanceStateChange(instance: updatedInstance, oldState: oldState, newState: state)
+                handleInstanceStateChange(updatedInstance, region: instance.region)
             }
+        }
+    }
+    
+    func getInstanceDetails(_ instanceId: String, region: String? = nil) async throws -> EC2Instance? {
+        let targetRegion = region ?? currentRegion
+        
+        // Ensure we have valid credentials
+        let authManager = AuthenticationManager.shared
+        let credentials = try authManager.getAWSCredentials()
+        
+        // Configure AWS services with credentials
+        let credentialsProvider = AWSStaticCredentialsProvider(
+            accessKey: credentials.accessKeyId,
+            secretKey: credentials.secretAccessKey
+        )
+        
+        let configuration = AWSServiceConfiguration(
+            region: authManager.selectedRegion.awsRegionType,
+            credentialsProvider: credentialsProvider
+        )!
+        
+        // Set the default configuration
+        AWSServiceManager.default().defaultServiceConfiguration = configuration
+        
+        // Register EC2 with this configuration
+        AWSEC2.register(with: configuration, forKey: "GetInstanceDetails")
+        let ec2Client = AWSEC2(forKey: "GetInstanceDetails")
+        
+        let request = AWSEC2DescribeInstancesRequest()!
+        request.instanceIds = [instanceId]
+        
+        do {
+            let result = try await ec2Client.describeInstances(request)
+            guard let reservation = result.reservations?.first,
+                  let instance = reservation.instances?.first else {
+                return nil
+            }
+            
+            return createInstance(from: instance, region: targetRegion)
+        } catch {
+            print("❌ Failed to get instance details for \(instanceId): \(error)")
+            throw error
+        }
+    }
+    
+    func listInstances(region: String? = nil) async throws -> [EC2Instance] {
+        let targetRegion = region ?? currentRegion
+        let request = AWSEC2DescribeInstancesRequest()!
+        
+        do {
+            let result = try await AWSEC2.default().describeInstances(request)
+            var instances: [EC2Instance] = []
+            
+            for reservation in result.reservations ?? [] {
+                for instance in reservation.instances ?? [] {
+                    if let ec2Instance = createInstance(from: instance, region: targetRegion) {
+                        instances.append(ec2Instance)
+                    }
+                }
+            }
+            
+            return instances
+        } catch {
+            print("❌ Failed to list instances: \(error)")
+            throw error
         }
     }
 }

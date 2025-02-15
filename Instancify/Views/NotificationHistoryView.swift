@@ -5,11 +5,21 @@ struct NotificationHistoryView: View {
     @StateObject private var hapticManager = HapticManager.shared
     let currentRegion: String
     
-    var groupedNotifications: [(String, [NotificationType])] {
+    var filteredNotifications: [(String, [NotificationType])] {
         let calendar = Calendar.current
         let now = Date()
         
-        return Dictionary(grouping: notificationManager.pendingNotifications) { notification in
+        // Filter only runtime and auto-stop alerts
+        let relevantNotifications = notificationManager.pendingNotifications.filter { entry in
+            switch entry.notification {
+            case .runtimeAlert, .autoStopWarning, .autoStopEnabled, .instanceAutoStopped:
+                return true
+            default:
+                return false
+            }
+        }
+        
+        return Dictionary(grouping: relevantNotifications) { notification in
             let timestamp = notification.timestamp
             if calendar.isDateInToday(timestamp) {
                 let hoursDiff = calendar.dateComponents([.hour], from: timestamp, to: now).hour ?? 0
@@ -65,15 +75,16 @@ struct NotificationHistoryView: View {
     
     private var emptyStateView: some View {
         VStack(spacing: 16) {
-            Image(systemName: "bell.slash.circle.fill")
+            Image(systemName: "bell.badge.circle.fill")
                 .font(.system(size: 48))
                 .foregroundColor(.secondary)
+                .symbolEffect(.bounce)
             
             Text("No Notifications")
                 .font(.title3)
                 .fontWeight(.semibold)
             
-            Text("Recent notifications will appear here")
+            Text("Runtime and auto-stop alerts will appear here")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -84,7 +95,7 @@ struct NotificationHistoryView: View {
     
     private var notificationsListView: some View {
         VStack(spacing: 16) {
-            ForEach(groupedNotifications, id: \.0) { group in
+            ForEach(filteredNotifications, id: \.0) { group in
                 NotificationGroup(title: group.0, notifications: group.1)
             }
         }
@@ -124,19 +135,15 @@ struct NotificationCard: View {
     var iconAndColor: (String, Color) {
         switch notification {
         case .runtimeAlert:
-            return ("timer.circle.fill", .pink)
-        case .instanceStarted:
-            return ("play.circle.fill", .green)
-        case .instanceStopped, .instanceAutoStopped:
+            return ("hourglass.circle.fill", .pink)
+        case .autoStopWarning:
+            return ("exclamationmark.circle.fill", .orange)
+        case .autoStopEnabled:
+            return ("clock.circle.fill", .blue)
+        case .instanceAutoStopped:
             return ("stop.circle.fill", .red)
-        case .autoStopWarning, .autoStopEnabled:
-            return ("clock.circle.fill", .orange)
-        case .instanceError:
-            return ("exclamationmark.triangle.fill", .red)
-        case .instanceStateChanged:
-            return ("arrow.triangle.2.circlepath", .blue)
-        case .instanceRunningLong:
-            return ("hourglass.circle.fill", .orange)
+        default:
+            return ("bell.circle.fill", .gray)
         }
     }
     
@@ -151,6 +158,7 @@ struct NotificationCard: View {
             Image(systemName: iconAndColor.0)
                 .font(.title2)
                 .foregroundColor(iconAndColor.1)
+                .symbolEffect(.bounce)
             
             VStack(alignment: .leading, spacing: 4) {
                 Text(notification.title)

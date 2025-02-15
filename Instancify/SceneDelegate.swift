@@ -26,17 +26,21 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func sceneDidBecomeActive(_ scene: UIScene) {
         print("\n📱 Scene becoming active")
         Task {
-            // Reset badge count
-            let center = UNUserNotificationCenter.current()
-            try? await center.setBadgeCount(0)
-            
-            let monitoringService = await InstanceMonitoringService.shared
-            
-            if !monitoringService.isMonitoring {
-                await monitoringService.startMonitoring()
+            do {
+                // Reset badge count
+                let center = UNUserNotificationCenter.current()
+                try? await center.setBadgeCount(0)
+                
+                let monitoringService = InstanceMonitoringService.shared
+                
+                if !monitoringService.isMonitoring {
+                    try await monitoringService.startMonitoring()
+                }
+                
+                try await monitoringService.checkAllRegions()
+            } catch {
+                print("❌ Error in sceneDidBecomeActive: \(error)")
             }
-            
-            await monitoringService.checkAllRegions()
         }
     }
     
@@ -53,17 +57,21 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
         
         Task {
-            let monitoringService = await InstanceMonitoringService.shared
-            
-            if !monitoringService.isMonitoring {
-                await monitoringService.startMonitoring()
+            do {
+                let monitoringService = InstanceMonitoringService.shared
+                
+                if !monitoringService.isMonitoring {
+                    try await monitoringService.startMonitoring()
+                }
+                
+                try await monitoringService.checkAllRegions()
+                
+                // Schedule background tasks
+                await AppDelegate.shared.scheduleBackgroundTasks()
+                print("✅ Background tasks scheduled")
+            } catch {
+                print("❌ Error in sceneDidEnterBackground: \(error)")
             }
-            
-            await monitoringService.checkAllRegions()
-            
-            // Schedule background tasks
-            await AppDelegate.shared.scheduleBackgroundTasks()
-            print("✅ Background tasks scheduled")
         }
         
         // Always end the background task
@@ -75,13 +83,17 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func sceneWillEnterForeground(_ scene: UIScene) {
         print("\n📱 Scene will enter foreground")
         Task {
-            let monitoringService = await InstanceMonitoringService.shared
-            
-            if !monitoringService.isMonitoring {
-                await monitoringService.startMonitoring()
+            do {
+                let monitoringService = InstanceMonitoringService.shared
+                
+                if !monitoringService.isMonitoring {
+                    try await monitoringService.startMonitoring()
+                }
+                
+                try await monitoringService.checkAllRegions()
+            } catch {
+                print("❌ Error in sceneWillEnterForeground: \(error)")
             }
-            
-            await monitoringService.checkAllRegions()
         }
     }
 } 
