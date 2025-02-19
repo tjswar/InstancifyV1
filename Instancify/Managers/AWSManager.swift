@@ -108,7 +108,23 @@ class AWSManager {
                 if let error = error {
                     print("Error fetching EC2 instances: \(error)")
                     // Return empty array with error status
-                    let errorInstance = EC2Instance.error()
+                    let errorInstance = EC2Instance(
+                        id: "error",
+                        instanceType: "unknown",
+                        state: .unknown,
+                        name: "Error loading instances",
+                        launchTime: nil,
+                        publicIP: nil,
+                        privateIP: nil,
+                        autoStopEnabled: false,
+                        countdown: nil,
+                        stateTransitionTime: nil,
+                        hourlyRate: 0.0,
+                        runtime: 0,
+                        currentCost: 0,
+                        projectedDailyCost: 0,
+                        region: "unknown"
+                    )
                     let errorResource = AWSResource(from: errorInstance)
                     continuation.resume(returning: [errorResource])
                     return

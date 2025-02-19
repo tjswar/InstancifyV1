@@ -150,8 +150,8 @@ struct DashboardView: View {
 struct DashboardView_Previews: PreviewProvider {
     static var previews: some View {
         NavigationView {
-            DashboardView()
-                .environmentObject(MockAuthManager())
+            DashboardView(viewModel: DashboardViewModel())
+                .environmentObject(AuthenticationManager.shared)
                 .environmentObject(MockNotificationManager())
                 .environmentObject(AppearanceSettingsViewModel())
                 .environmentObject(MockAppLockService())

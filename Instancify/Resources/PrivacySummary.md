@@ -48,6 +48,26 @@ We use:
 - No advertising services
 - No analytics services
 
+## Legal Information
+
+### Copyright
+© 2024 Instancify. All rights reserved.
+
+### Trademarks
+- AWS and Amazon Web Services are trademarks of Amazon.com, Inc. or its affiliates.
+- Instancify is not affiliated with or endorsed by Amazon Web Services.
+- Firebase is a trademark of Google LLC.
+
+### Terms of Use
+- This application is provided "as is" without warranty of any kind
+- Users are responsible for their AWS credentials and usage
+- Users must comply with AWS service terms
+- We reserve the right to modify or discontinue services
+- Usage of this app constitutes acceptance of these terms
+
+### Disclaimer
+Instancify is an independent tool for AWS EC2 management. While we strive for accuracy, we cannot guarantee the reliability of third-party services or real-time data. Users are responsible for verifying critical information through official AWS channels.
+
 ## Questions?
 
 Contact us at:

@@ -110,6 +110,34 @@ struct PrivacySummaryContent: View {
                     BulletPoint("No analytics services")
                 }
             }
+            
+            // Legal Information
+            PrivacySection(title: "Legal Information", systemImage: "doc.text.fill") {
+                VStack(alignment: .leading, spacing: 16) {
+                    PrivacySubsection(title: "Copyright", systemImage: "c.circle.fill") {
+                        Text("© 2024 Instancify. All rights reserved.")
+                            .font(.subheadline)
+                    }
+                    
+                    PrivacySubsection(title: "Trademarks", systemImage: "trademark.circle.fill") {
+                        BulletPoint("AWS and Amazon Web Services are trademarks of Amazon.com, Inc.")
+                        BulletPoint("Instancify is not affiliated with or endorsed by AWS")
+                        BulletPoint("Firebase is a trademark of Google LLC")
+                    }
+                    
+                    PrivacySubsection(title: "Terms of Use", systemImage: "doc.plaintext.fill") {
+                        BulletPoint("Application provided 'as is' without warranty")
+                        BulletPoint("Users are responsible for AWS credentials and usage")
+                        BulletPoint("Users must comply with AWS service terms")
+                        BulletPoint("We reserve the right to modify services")
+                    }
+                    
+                    PrivacySubsection(title: "Disclaimer", systemImage: "exclamationmark.triangle.fill") {
+                        Text("Instancify is an independent tool for AWS EC2 management. While we strive for accuracy, we cannot guarantee the reliability of third-party services or real-time data. Users are responsible for verifying critical information through official AWS channels.")
+                            .font(.subheadline)
+                    }
+                }
+            }
         }
     }
 }

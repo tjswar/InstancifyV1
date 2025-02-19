@@ -34,13 +34,10 @@
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
 		<string>armv7</string>
-		<string>push-notification</string>
 	</array>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>InstancifyWidgetIntent</string>
 	</array>
-	<key>UIApplicationExitsOnSuspend</key>
-	<false/>
 </dict>
 </plist>

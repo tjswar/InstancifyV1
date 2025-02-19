@@ -9,6 +9,7 @@ struct AboutView: View {
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets())
             }
+            .listSectionSeparator(.hidden)
             
             // Legal & Privacy Section
             Section {
@@ -16,7 +17,8 @@ struct AboutView: View {
             } header: {
                 Text("Legal")
             }
-            .listRowSeparator(.visible)
+            .listRowBackground(Color(.systemBackground))
+            .listSectionSeparator(.visible)
             
             // Contact Section
             Section {
@@ -24,7 +26,8 @@ struct AboutView: View {
             } header: {
                 Text("Contact")
             }
-            .listRowSeparator(.visible)
+            .listRowBackground(Color(.systemBackground))
+            .listSectionSeparator(.visible)
             
             // Donate Section
             Section {
@@ -32,16 +35,19 @@ struct AboutView: View {
             } header: {
                 Text("Support Development")
             }
-            .listRowSeparator(.visible)
+            .listRowBackground(Color(.systemBackground))
+            .listSectionSeparator(.visible)
             
             // Credits Section
             Section {
                 creditsContent
                     .listRowBackground(Color.clear)
             }
+            .listSectionSeparator(.hidden)
         }
-        .scrollContentBackground(.visible)
-        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Color(.systemBackground))
+        .listStyle(.plain)
         .navigationTitle("About")
         .navigationBarTitleDisplayMode(.inline)
     }

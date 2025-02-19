@@ -141,7 +141,10 @@ extension EC2Instance {
             region: "us-east-1"
         )
     }
-    
+}
+#endif 
+
+extension EC2Instance {
     static func empty() -> EC2Instance {
         return EC2Instance(
             id: "empty",
@@ -181,10 +184,7 @@ extension EC2Instance {
             region: "unknown"
         )
     }
-}
-#endif 
-
-extension EC2Instance {
+    
     convenience init?(from awsInstance: AWSEC2Instance) {
         guard let instanceId = awsInstance.instanceId else { return nil }
         
