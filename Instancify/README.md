@@ -1,8 +1,6 @@
 # Instancify
 
-<p align="center">
-  <img src="Instancify/Assets.xcassets/AppIcon.appiconset/AppIcon.png" width="120" alt="Instancify Logo">
-</p>
+
 
 Instancify is an iOS application that helps manage AWS EC2 instances with an intuitive interface. It provides real-time monitoring, cost tracking, and automated instance management capabilities.
 
