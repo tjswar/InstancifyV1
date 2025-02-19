@@ -1,0 +1,30 @@
+title: Instancify Support
+description: Support documentation for Instancify iOS app
+baseurl: "/InstancifyV1"
+url: "https://tjswar.github.io"
+
+# Build settings
+markdown: kramdown
+theme: jekyll-theme-minimal
+
+# Exclude directories and files
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - node_modules
+  - vendor
+  - .git
+  - .gitignore
+  - README.md
+  - Instancify/
+  - Instancify.xcodeproj/
+  - InstancifyTests/
+  - InstancifyUITests/
+  - InstancifyWidgets/
+  - InstancifyWidgetsExtension/
+  - functions/
+  - scripts/
+  - src/
+  - test/
+  - lib/
+  - Desktop/ 
