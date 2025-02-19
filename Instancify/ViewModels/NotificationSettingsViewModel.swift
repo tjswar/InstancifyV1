@@ -474,20 +474,25 @@ class NotificationSettingsViewModel: ObservableObject {
     func setRuntimeAlerts(enabled: Bool, region: String) async throws {
         print("\n🔔 Setting runtime alerts for region \(region) to \(enabled)")
         
-        guard let userId = userId else { return }
+        guard let userId = userId else {
+            throw NSError(domain: "RuntimeAlerts", code: 2, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
+        }
         
-        // Update Firestore settings
+        // Update Firestore settings first
         let settingsRef = db.collection("regionAlertStatus").document("\(userId)_\(region)")
         try await settingsRef.setData([
             "userId": userId,
             "region": region,
             "enabled": enabled,
             "type": "settings",
-            "updatedAt": FieldValue.serverTimestamp()
+            "updatedAt": FieldValue.serverTimestamp(),
+            "appTerminated": false // Add this field to track app termination state
         ], merge: true)
         
         // If disabling, remove alerts for this specific region
         if !enabled {
+            print("  🔄 Disabling runtime alerts for region \(region)")
+            
             // Get all alert IDs for this region
             let alertsQuery = db.collection("scheduledAlerts")
                 .whereField("userId", isEqualTo: userId)
@@ -502,6 +507,7 @@ class NotificationSettingsViewModel: ObservableObject {
             }
             
             try await batch.commit()
+            print("  ✅ Cleared \(snapshot.documents.count) alerts for region \(region)")
             
             // Only remove alerts for this region from local state
             runtimeAlerts.removeAll { alert in
@@ -518,49 +524,38 @@ class NotificationSettingsViewModel: ObservableObject {
                 return alert
             }
             
-            // Save the updated state to UserDefaults
+            // Save the updated state
             saveAlerts()
-            
-            // Save disabled state
-            if let defaults = self.defaults {
-                defaults.set(false, forKey: "runtimeAlerts_enabled_\(region)")
-                defaults.synchronize()
-            }
             
             // Update local state for this region
             DispatchQueue.main.async {
                 self.runtimeAlertsEnabledByRegion[region] = false
+                // Save to UserDefaults for persistence
+                self.defaults?.set(false, forKey: "runtimeAlerts_enabled_\(region)")
             }
             
             print("✅ Cleared all alerts and disabled monitoring for region \(region)")
         } else {
+            print("  🔄 Enabling runtime alerts for region \(region)")
+            
             // If enabling, first check if there are any running instances
             let ec2Service = EC2Service.shared
             let instances = try await ec2Service.fetchInstances()
             let runningInstances = instances.filter { $0.state == .running && $0.region == region }
             
-            if runningInstances.isEmpty {
-                print("⚠️ No running instances in region \(region), keeping alerts disabled")
-                
-                // Update UI to show alerts are disabled
-                DispatchQueue.main.async {
-                    self.runtimeAlertsEnabledByRegion[region] = false
-                }
-                
-                if let defaults = self.defaults {
-                    defaults.set(false, forKey: "runtimeAlerts_enabled_\(region)")
-                    defaults.synchronize()
-                }
-                
-                throw NSError(domain: "RuntimeAlerts", 
-                             code: 1, 
-                             userInfo: [NSLocalizedDescriptionKey: "Cannot enable runtime alerts: No running instances in this region"])
+            // Don't throw error if no running instances, just keep the enabled state
+            // This allows alerts to be ready when instances start
+            
+            print("  📝 Found \(runningInstances.count) running instances in region \(region)")
+            
+            // Update local state for this region first
+            DispatchQueue.main.async {
+                self.runtimeAlertsEnabledByRegion[region] = true
+                // Save to UserDefaults for persistence
+                self.defaults?.set(true, forKey: "runtimeAlerts_enabled_\(region)")
             }
             
-            // Reset the explicit disable flag when enabling
-            UserDefaults.standard.removeObject(forKey: "explicit_disable_\(region)")
-            
-            print("  📝 Applying alerts to \(runningInstances.count) running instances in region \(region)")
+            // Process each running instance
             for instance in runningInstances {
                 print("  • Processing instance: \(instance.name ?? instance.id)")
                 await handleInstanceStateChange(
@@ -572,20 +567,66 @@ class NotificationSettingsViewModel: ObservableObject {
                 )
             }
             
-            // Save enabled state to UserDefaults for recovery
-            if let defaults = self.defaults {
-                defaults.set(true, forKey: "runtimeAlerts_enabled_\(region)")
-                defaults.synchronize()
-            }
-            
-            // Update local state for this region
-            DispatchQueue.main.async {
-                self.runtimeAlertsEnabledByRegion[region] = true
-            }
+            print("✅ Enabled runtime alerts for region \(region)")
         }
         
         // Trigger a refresh to ensure all instances get alerts
         NotificationCenter.default.post(name: NSNotification.Name("RuntimeAlertsChanged"), object: nil)
+    }
+    
+    // Add method to handle app termination
+    func handleAppTermination() {
+        print("\n📱 Handling app termination")
+        guard let userId = userId else { return }
+        
+        // Update all enabled regions to mark them as terminated
+        for (region, enabled) in runtimeAlertsEnabledByRegion where enabled {
+            let settingsRef = db.collection("regionAlertStatus").document("\(userId)_\(region)")
+            settingsRef.setData([
+                "appTerminated": true,
+                "updatedAt": FieldValue.serverTimestamp()
+            ], merge: true) { error in
+                if let error = error {
+                    print("❌ Error updating termination state for region \(region): \(error)")
+                } else {
+                    print("✅ Updated termination state for region \(region)")
+                }
+            }
+        }
+        
+        // Save current state to UserDefaults
+        saveAlerts()
+    }
+
+    // Add method to handle app launch
+    func handleAppLaunch() async {
+        print("\n📱 Handling app launch")
+        guard let userId = userId else { return }
+        
+        do {
+            // Get all regions that were enabled before termination
+            let query = db.collection("regionAlertStatus")
+                .whereField("userId", isEqualTo: userId)
+                .whereField("enabled", isEqualTo: true)
+                .whereField("appTerminated", isEqualTo: true)
+            
+            let snapshot = try await query.getDocuments()
+            
+            for doc in snapshot.documents {
+                if let region = doc.data()["region"] as? String {
+                    print("  • Restoring alerts for region: \(region)")
+                    
+                    // Only restore if not explicitly disabled
+                    if !UserDefaults.standard.bool(forKey: "explicit_disable_\(region)") {
+                        try await setRuntimeAlerts(enabled: true, region: region)
+                    }
+                }
+            }
+            
+            print("✅ Completed app launch restoration")
+        } catch {
+            print("❌ Error restoring alerts state: \(error)")
+        }
     }
     
     private func setupRuntimeAlertsListener() {

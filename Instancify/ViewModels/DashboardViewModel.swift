@@ -20,10 +20,42 @@ class DashboardViewModel: ObservableObject {
     @Published var showStartAllConfirmation = false
     @Published var showStopAllConfirmation = false
     @Published var error: String?
-    @Published private(set) var currentRegion: String = "us-east-1"
+    @Published private(set) var currentRegion: String = AuthenticationManager.shared.selectedRegion.rawValue {
+        didSet {
+            if oldValue != currentRegion {
+                print("\n🌎 DashboardViewModel: Region changed from \(oldValue) to \(currentRegion)")
+                // Clear all data for region change
+                instances = []
+                costMetrics = nil
+                isRegionSwitching = true
+                error = nil
+                
+                // Ensure EC2Service is in sync
+                if ec2Service.currentRegion != currentRegion {
+                    Task {
+                        do {
+                            let credentials = try AuthenticationManager.shared.getAWSCredentials()
+                            ec2Service.updateConfiguration(
+                                with: credentials,
+                                region: currentRegion
+                            )
+                        } catch {
+                            self.error = error.localizedDescription
+                        }
+                    }
+                }
+                
+                // Refresh data for new region
+                Task {
+                    await refresh()
+                }
+            }
+        }
+    }
     
     private let ec2Service = EC2Service.shared
     private let cloudWatchService = CloudWatchService.shared
+    private var regionObserver: NSObjectProtocol?
     
     var runningInstancesCount: Int {
         instances.filter { $0.state == .running }.count
@@ -52,30 +84,78 @@ class DashboardViewModel: ObservableObject {
         "t3.large": 0.0832
     ]
     
-    init() {}
+    init() {
+        // Initialize with the current region from AuthenticationManager
+        currentRegion = AuthenticationManager.shared.selectedRegion.rawValue
+        
+        // Listen for region changes
+        regionObserver = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("RegionChanged"),
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            if let newRegion = notification.object as? String,
+               let self = self {
+                // Only update if the region is actually different
+                if self.currentRegion != newRegion {
+                    print("\n🌎 DashboardViewModel: Received region change notification: \(newRegion)")
+                    Task { @MainActor in
+                        // Clear current data
+                        self.instances = []
+                        self.costMetrics = nil
+                        self.isRegionSwitching = true
+                        
+                        // Update region
+                        self.currentRegion = newRegion
+                        
+                        // Ensure AWS is configured correctly
+                        do {
+                            let credentials = try AuthenticationManager.shared.getAWSCredentials()
+                            EC2Service.shared.updateConfiguration(
+                                with: credentials,
+                                region: newRegion
+                            )
+                            // Force a refresh after region change
+                            await self.refresh()
+                        } catch {
+                            self.error = error.localizedDescription
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Initial refresh with delay to ensure AWS is configured
+        Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5 second delay
+            await refresh()
+        }
+    }
+    
+    deinit {
+        // Clean up observer
+        if let observer = regionObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
     
     func changeRegion(_ region: AWSRegion) async {
+        guard region.rawValue != currentRegion else {
+            print("🌎 Region is already set to \(region.rawValue)")
+            return
+        }
+        
         do {
-            // Get current credentials
-            let credentials = try AuthenticationManager.shared.getAWSCredentials()
+            print("\n🌎 DashboardViewModel: Changing region to \(region.rawValue)")
+            isRegionSwitching = true
             
-            // Configure AWS services for new region
-            try await AWSManager.shared.configure(
-                accessKey: credentials.accessKeyId,
-                secretKey: credentials.secretAccessKey,
-                region: region.awsRegionType
-            )
+            // Update AuthenticationManager first as the source of truth
+            AuthenticationManager.shared.selectedRegion = region
             
-            // Update EC2Service configuration
-            EC2Service.shared.updateConfiguration(
-                with: credentials,
-                region: region.awsRegionType
-            )
-            
-            // Refresh instances in new region
-            await refresh()
+            // The rest will be handled by the currentRegion didSet observer
         } catch {
             self.error = error.localizedDescription
+            isRegionSwitching = false
         }
     }
     
@@ -109,69 +189,52 @@ class DashboardViewModel: ObservableObject {
         guard !isLoading else { return }
         
         isLoading = true
-        isRegionSwitching = false
         defer { isLoading = false }
         
         do {
-            async let instancesTask = ec2Service.fetchInstances()
-            let fetchedInstances = try await instancesTask
-            
-            // Track existing instance IDs and states for change detection
-            let existingInstanceStates = Dictionary(uniqueKeysWithValues: instances.map { ($0.id, $0.state) })
-            
-            // Check for state changes and apply alerts
-            let notificationSettings = NotificationSettingsViewModel.shared
-            let alertsEnabled = notificationSettings.isRuntimeAlertsEnabled(for: currentRegion)
-            let hasAlerts = !notificationSettings.getAlertsForRegion(currentRegion).isEmpty
-            
-            if alertsEnabled && hasAlerts {
-                print("\n📝 Processing alerts for region \(currentRegion)")
-                print("  • Alerts enabled: \(alertsEnabled)")
-                print("  • Has alerts: \(hasAlerts)")
-                
-                for instance in fetchedInstances {
-                    if instance.state == .running {
-                        let oldState = existingInstanceStates[instance.id]
-                        let isNewInstance = oldState == nil
-                        let stateChanged = oldState != nil && oldState != .running
-                        
-                        if isNewInstance {
-                            print("\n📝 New running instance detected: \(instance.id)")
-                            print("  • Name: \(instance.name ?? "unnamed")")
-                            print("  • Launch Time: \(instance.launchTime?.description ?? "unknown")")
-                            
-                            await notificationSettings.handleInstanceStateChange(
-                                instanceId: instance.id,
-                                instanceName: instance.name ?? instance.id,
-                                region: currentRegion,
-                                state: "running",
-                                launchTime: instance.launchTime
-                            )
-                        } else if stateChanged {
-                            print("\n📝 Instance state changed to running: \(instance.id)")
-                            print("  • Name: \(instance.name ?? "unnamed")")
-                            print("  • Previous state: \(oldState?.rawValue ?? "unknown")")
-                            print("  • Launch Time: \(instance.launchTime?.description ?? "unknown")")
-                            
-                            await notificationSettings.handleInstanceStateChange(
-                                instanceId: instance.id,
-                                instanceName: instance.name ?? instance.id,
-                                region: currentRegion,
-                                state: "running",
-                                launchTime: instance.launchTime
-                            )
-                        }
-                    }
-                }
+            // Ensure region consistency with AuthenticationManager
+            let expectedRegion = AuthenticationManager.shared.selectedRegion.rawValue
+            if currentRegion != expectedRegion {
+                print("\n🌎 Region mismatch detected in DashboardViewModel")
+                print("  • Current: \(currentRegion)")
+                print("  • Expected: \(expectedRegion)")
+                currentRegion = expectedRegion
+                return // The didSet observer will trigger another refresh
             }
             
-            instances = fetchedInstances
+            // Ensure EC2Service is using the correct region
+            if ec2Service.currentRegion != currentRegion {
+                print("\n🌎 Updating EC2Service region to match dashboard")
+                let credentials = try AuthenticationManager.shared.getAWSCredentials()
+                ec2Service.updateConfiguration(
+                    with: credentials,
+                    region: currentRegion
+                )
+                // Add small delay after configuration update
+                try await Task.sleep(nanoseconds: 100_000_000)  // 0.1 second delay
+            }
             
-            // Fetch cost metrics after we have instances
-            costMetrics = try await cloudWatchService.fetchCostMetrics(for: instances)
+            print("\n🔄 Refreshing dashboard for region: \(currentRegion)")
+            let fetchedInstances = try await ec2Service.fetchInstances()
+            
+            // Only accept instances from current region
+            instances = fetchedInstances.filter { $0.region == currentRegion }
+            
+            if !instances.isEmpty {
+                costMetrics = try await cloudWatchService.fetchCostMetrics(for: instances)
+            } else {
+                costMetrics = nil
+            }
+            
             error = nil
+            isRegionSwitching = false
+            
+            print("✅ Refresh completed for region: \(currentRegion)")
+            print("  • Found \(instances.count) instances")
+            
         } catch {
             self.error = error.localizedDescription
+            isRegionSwitching = false
         }
     }
     
@@ -200,7 +263,7 @@ class DashboardViewModel: ObservableObject {
             // Update EC2Service configuration
             EC2Service.shared.updateConfiguration(
                 with: credentials,
-                region: region.awsRegionType
+                region: region.rawValue
             )
             
             // Update current region

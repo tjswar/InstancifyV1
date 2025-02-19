@@ -36,12 +36,10 @@ class LoginViewModel: ObservableObject {
             print("🔑 LoginVM: Starting sign in...")
             print("🔑 LoginVM: Using region: \(selectedRegion.rawValue)")
             
-            // Update auth manager's region
-            authManager.selectedRegion = selectedRegion
-            
             try await authManager.signIn(
                 accessKeyId: accessKeyId,
-                secretAccessKey: secretAccessKey
+                secretAccessKey: secretAccessKey,
+                region: selectedRegion
             )
             
             print("🔑 LoginVM: ✅ Sign in successful")

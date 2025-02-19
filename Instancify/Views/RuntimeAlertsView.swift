@@ -7,7 +7,7 @@ struct RuntimeAlertsView: View {
     @State private var showError = false
     @State private var errorMessage = ""
     @State private var isLoading = false
-    @State private var hasRunningInstances = true  // New state to track running instances
+    @State private var hasRunningInstances = true
     let region: String
     
     var body: some View {
@@ -30,12 +30,20 @@ struct RuntimeAlertsView: View {
                                 // Set explicit disable flag if user is disabling alerts
                                 if !newValue {
                                     UserDefaults.standard.set(true, forKey: "explicit_disable_\(region)")
+                                } else {
+                                    // Clear explicit disable flag when enabling
+                                    UserDefaults.standard.removeObject(forKey: "explicit_disable_\(region)")
                                 }
                                 
                                 try await notificationSettings.setRuntimeAlerts(
                                     enabled: newValue,
                                     region: region
                                 )
+                                
+                                // Ensure the UI reflects the current state
+                                await MainActor.run {
+                                    self.isEnabled = notificationSettings.isRuntimeAlertsEnabled(for: region)
+                                }
                             } catch {
                                 errorMessage = error.localizedDescription
                                 showError = true
@@ -77,8 +85,10 @@ struct RuntimeAlertsView: View {
                 }
             }
             .onAppear {
+                // Load initial state
                 isEnabled = notificationSettings.isRuntimeAlertsEnabled(for: region)
-                // Check for running instances when view appears
+                
+                // Check for running instances
                 Task {
                     do {
                         let ec2Service = EC2Service.shared
@@ -86,9 +96,14 @@ struct RuntimeAlertsView: View {
                         let runningInstances = instances.filter { 
                             $0.region == region && $0.state == .running 
                         }
-                        hasRunningInstances = !runningInstances.isEmpty
-                        if !hasRunningInstances {
-                            isEnabled = false
+                        
+                        await MainActor.run {
+                            hasRunningInstances = !runningInstances.isEmpty
+                            // Only disable if explicitly disabled by user
+                            if !hasRunningInstances && !UserDefaults.standard.bool(forKey: "explicit_disable_\(region)") {
+                                // Keep the current enabled state
+                                isEnabled = notificationSettings.isRuntimeAlertsEnabled(for: region)
+                            }
                         }
                     } catch {
                         print("Error checking instances: \(error)")
@@ -111,7 +126,11 @@ struct RuntimeAlertsView: View {
     
     private func getDisabledMessage() -> String {
         if !hasRunningInstances {
-            return "Runtime alerts are automatically disabled because there are no running instances in this region. They will be available when you start instances."
+            if UserDefaults.standard.bool(forKey: "explicit_disable_\(region)") {
+                return "Runtime alerts have been manually disabled for this region. Enable them to get notified when your instances have been running for extended periods."
+            } else {
+                return "There are currently no running instances in this region. Runtime alerts will be active when you start instances."
+            }
         } else if UserDefaults.standard.bool(forKey: "explicit_disable_\(region)") {
             return "Runtime alerts have been manually disabled for this region. Enable them to get notified when your instances have been running for extended periods."
         } else {

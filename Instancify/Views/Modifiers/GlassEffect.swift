@@ -19,20 +19,26 @@ struct GlassEffect: ViewModifier {
             .background {
                 if colorScheme == .dark {
                     RoundedRectangle(cornerRadius: 16)
-                        .fill(.ultraThinMaterial)
-                        .opacity(0.7)
+                        .fill(.ultraThinMaterial.opacity(0.6))
                         .overlay {
                             RoundedRectangle(cornerRadius: 16)
-                                .stroke(.white.opacity(0.1), lineWidth: 1)
+                                .stroke(
+                                    Color.white.opacity(0.04),
+                                    lineWidth: 0.5
+                                )
                         }
+                        .shadow(color: .black.opacity(0.2), radius: 15, x: 0, y: 8)
                 } else {
                     RoundedRectangle(cornerRadius: 16)
-                        .fill(.ultraThinMaterial)
-                        .opacity(0.8)
+                        .fill(.ultraThinMaterial.opacity(0.5))
                         .overlay {
                             RoundedRectangle(cornerRadius: 16)
-                                .stroke(.white.opacity(0.2), lineWidth: 1)
+                                .stroke(
+                                    Color.white.opacity(0.1),
+                                    lineWidth: 0.5
+                                )
                         }
+                        .shadow(color: .black.opacity(0.05), radius: 12, x: 0, y: 6)
                 }
             }
     }

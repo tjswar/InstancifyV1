@@ -35,6 +35,10 @@ class FirebaseNotificationService {
             do {
                 let result = try await Auth.auth().signInAnonymously()
                 print("✅ Anonymous auth successful. User ID: \(result.user.uid)")
+                
+                // Get ID token for Cloud Functions authentication
+                let idToken = try await result.user.getIDToken()
+                print("✅ Got ID token for Cloud Functions authentication")
             } catch let error as NSError {
                 print("❌ Anonymous auth failed with code: \(error.code)")
                 print("❌ Error domain: \(error.domain)")
@@ -56,7 +60,11 @@ class FirebaseNotificationService {
                 throw NotificationError.authenticationFailed
             }
         } else {
-            print("✅ Already authenticated with Firebase")
+            // Refresh token if already authenticated
+            if let user = Auth.auth().currentUser {
+                _ = try await user.getIDToken(forcingRefresh: true)
+                print("✅ Refreshed ID token for existing user")
+            }
         }
     }
     
@@ -123,48 +131,29 @@ class FirebaseNotificationService {
             print("\n🔑 Retrieving FCM token...")
             let token = try await Messaging.messaging().token()
             
-            // Create a unique document ID that includes region and instance info
+            // Create a unique document ID
             let documentId = "\(region)_\(instanceId)_\(runtime)"
-            
-            // Get the alert configuration to check if it's global
-            let settings = NotificationSettingsViewModel.shared
-            let alerts = settings.getAlertsForRegion(region)
-            let matchingAlert = alerts.first { alert in
-                let threshold = alert.hours * 60 + alert.minutes
-                return threshold == runtime
-            }
-            
-            let isGlobal = matchingAlert?.regions.isEmpty ?? false
-            let regions = matchingAlert?.regions ?? []
             
             print("\n💾 Creating Firestore document...")
             print("  • Document ID: \(documentId)")
-            print("  • Is Global: \(isGlobal)")
-            print("  • Regions: \(regions)")
             
             let alertData: [String: Any] = [
-                "instanceId": instanceId,
+                "instanceID": instanceId,
                 "instanceName": instanceName,
                 "region": region,
                 "launchTime": Timestamp(date: launchTime),
                 "threshold": runtime,
                 "fcmToken": token,
                 "scheduledTime": Timestamp(date: triggerDate),
-                "created": FieldValue.serverTimestamp(),
-                "isGlobal": isGlobal,
-                "regions": Array(regions)
+                "status": "pending",
+                "notificationSent": false
             ]
             
             try await db.collection("scheduledAlerts")
                 .document(documentId)
-                .setData(alertData, merge: true)
+                .setData(alertData)
             
             print("\n✅ Alert Successfully Scheduled")
-            print("----------------------------------------")
-            
-            // Invalidate cache
-            invalidateCache(for: region)
-            print("🔄 Cache invalidated for region: \(region)")
             print("----------------------------------------")
             
         } catch let error as NSError {
@@ -201,16 +190,21 @@ class FirebaseNotificationService {
                 let documentId = "\(alert.region)_\(alert.instanceId)_\(alert.threshold)"
                 
                 let alertData: [String: Any] = [
-                    "instanceId": alert.instanceId,
+                    "instanceID": alert.instanceId,
                     "instanceName": alert.instanceName,
                     "region": alert.region,
                     "launchTime": Timestamp(date: alert.launchTime),
                     "threshold": alert.threshold,
                     "fcmToken": token,
                     "scheduledTime": Timestamp(date: alert.scheduledTime),
-                    "created": FieldValue.serverTimestamp(),
+                    "createdAt": FieldValue.serverTimestamp(),
                     "isGlobal": alert.regions.isEmpty,
-                    "regions": Array(alert.regions)
+                    "regions": Array(alert.regions),
+                    "type": "runtime_alert",
+                    "status": "pending",
+                    "notificationSent": false,
+                    "deleted": false,
+                    "instanceState": "running"
                 ]
                 
                 // Use setData with merge option to handle existing documents
@@ -349,38 +343,133 @@ class FirebaseNotificationService {
             print("  • Data: \(data)")
         }
         
-        let fcmToken = try await getFCMToken()
+        // Add retry logic
+        let maxRetries = 3
+        var lastError: Error? = nil
         
-        let notificationData: [String: Any] = [
-            "token": fcmToken,
-            "notification": [
+        for attempt in 1...maxRetries {
+            do {
+                let fcmToken = try await getFCMToken()
+                
+                // Create a mutable copy of the data
+                var notificationData = data ?? [:]
+                
+                // Add timestamp if not present
+                if notificationData["timestamp"] == nil {
+                    notificationData["timestamp"] = "\(Date().timeIntervalSince1970)"
+                }
+                
+                // Add region if not present
+                if notificationData["region"] == nil {
+                    // Try to get region, but don't fail if we can't
+                    if let region = try? await KeychainManager.shared.getRegion() {
+                        notificationData["region"] = region
+                    }
+                }
+                
+                // For auto-stop alerts, ensure we have all required fields
+                if notificationData["type"] == "auto_stop_warning" {
+                    if notificationData["secondsRemaining"] == nil,
+                       let timeString = notificationData["timestamp"],
+                       let stopTimeString = notificationData["stopTime"],
+                       let timestamp = Double(timeString),
+                       let stopTime = Double(stopTimeString) {
+                        let secondsRemaining = Int(stopTime - timestamp)
+                        notificationData["secondsRemaining"] = "\(secondsRemaining)"
+                    }
+                }
+                
+                let message: [String: Any] = [
+                    "token": fcmToken,
+                    "title": title,
+                    "body": body,
+                    "data": notificationData
+                ]
+                
+                // Create a callable Cloud Function
+                let functions = Functions.functions()
+                let sendNotification = functions.httpsCallable("sendNotificationFunction")
+                
+                let result = try await sendNotification.call(message)
+                print("✅ Push notification sent via Cloud Function")
+                print("  • Result: \(String(describing: result.data))")
+                print("----------------------------------------")
+                
+                // Store in Firestore
+                await storeNotificationInHistory(title: title, body: body, data: notificationData)
+                
+                return
+                
+            } catch let error {
+                lastError = error
+                print("⚠️ Attempt \(attempt) failed: \(error.localizedDescription)")
+                
+                if attempt < maxRetries {
+                    // Wait before retrying (exponential backoff)
+                    let delay = TimeInterval(pow(2.0, Double(attempt - 1)))
+                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    print("🔄 Retrying... (Attempt \(attempt + 1) of \(maxRetries))")
+                    continue
+                }
+            }
+        }
+        
+        // If we get here, all retries failed
+        if let error = lastError {
+            print("❌ All notification attempts failed")
+            // Store notification in Firestore for later delivery
+            await storeFailedNotification(title: title, body: body, data: data)
+            // Don't throw the error to prevent the "unableToRetrieve" message
+            print("ℹ️ Notification will be delivered when connection is restored")
+        }
+    }
+    
+    private func storeNotificationInHistory(title: String, body: String, data: [String: String]) async {
+        do {
+            let db = Firestore.firestore()
+            let notificationRef = db.collection("notificationHistory").document()
+            
+            var firestoreData: [String: Any] = [
+                "timestamp": FieldValue.serverTimestamp(),
                 "title": title,
                 "body": body
-            ],
-            "data": data ?? [:],
-            "apns": [
-                "payload": [
-                    "aps": [
-                        "sound": "default",
-                        "badge": 1
-                    ]
-                ]
             ]
-        ]
-        
-        // Create a callable Cloud Function
-        let functions = Functions.functions()
-        let sendNotification = functions.httpsCallable("sendNotification")
-        
-        do {
-            let result = try await sendNotification.call(notificationData)
-            print("✅ Push notification sent via Cloud Function")
-            print("  • Result: \(String(describing: result.data))")
-            } catch {
-            print("❌ Failed to send notification: \(error.localizedDescription)")
-            throw error
+            
+            // Add all data fields
+            for (key, value) in data {
+                firestoreData[key] = value
+            }
+            
+            try await notificationRef.setData(firestoreData)
+            print("✅ Notification saved to history")
+        } catch {
+            print("⚠️ Error saving to notification history: \(error.localizedDescription)")
         }
-        print("----------------------------------------")
+    }
+    
+    private func storeFailedNotification(_ notification: [String: Any]) async {
+        do {
+            let docRef = db.collection("failedNotifications").document()
+            try await docRef.setData([
+                "notification": notification,
+                "timestamp": FieldValue.serverTimestamp(),
+                "attempts": 0,
+                "status": "pending"
+            ])
+            print("✅ Failed notification stored for later delivery")
+        } catch {
+            print("⚠️ Could not store failed notification: \(error.localizedDescription)")
+        }
+    }
+    
+    private func storeFailedNotification(title: String, body: String, data: [String: String]?) async {
+        let notification: [String: Any] = [
+            "title": title,
+            "body": body,
+            "data": data ?? [:],
+            "createdAt": FieldValue.serverTimestamp()
+        ]
+        await storeFailedNotification(notification)
     }
     
     func sendInstanceStateNotification(instanceId: String, instanceName: String, oldState: String, newState: String) async throws {
@@ -411,6 +500,47 @@ class FirebaseNotificationService {
         try await sendPushNotification(title: title, body: body, data: data)
     }
     
+    func handleInstanceStateChange(instanceId: String, instanceName: String, region: String, oldState: String, newState: String, launchTime: Date?) async throws {
+        print("\n🔄 Calling handleInstanceStateChange function")
+        print("  • Instance: \(instanceName) (\(instanceId))")
+        print("  • Region: \(region)")
+        print("  • State Change: \(oldState) -> \(newState)")
+        print("  • Launch Time: \(launchTime?.description ?? "N/A")")
+
+        // Ensure Firebase Authentication
+        try await signInAnonymously()
+
+        // Create a callable Cloud Function
+        let handleStateChange = functions.httpsCallable("handleInstanceStateChange")
+
+        var data: [String: Any] = [
+            "instanceId": instanceId,
+            "instanceName": instanceName,
+            "region": region,
+            "oldState": oldState,
+            "newState": newState.lowercased()  // Ensure state is lowercase to match Firebase expectations
+        ]
+        
+        if let launchTime = launchTime {
+            data["launchTime"] = launchTime
+        }
+
+        print("📤 Sending data to Firebase:")
+        print("  • Instance ID: \(instanceId)")
+        print("  • Region: \(region)")
+        print("  • New State: \(newState.lowercased())")
+
+        let result = try await handleStateChange.call(data)
+        print("✅ Instance state change handled by Firebase")
+        print("  • Result: \(String(describing: result.data))")
+        
+        // Post notification to update UI
+        NotificationCenter.default.post(
+            name: NSNotification.Name("InstanceStateChanged"),
+            object: ["instanceId": instanceId, "region": region, "state": newState]
+        )
+    }
+    
     private func initializeFirebase() {
         if FirebaseApp.app() == nil {
             FirebaseApp.configure()
@@ -418,7 +548,7 @@ class FirebaseNotificationService {
         }
         
         if Auth.auth().currentUser == nil {
-            print("🔐 Starting anonymous auth...")
+            print(" Starting anonymous auth...")
             Auth.auth().signInAnonymously { authResult, error in
                 if let error = error {
                     print("❌ Auth failed: \(error)")

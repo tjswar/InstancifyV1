@@ -1,5 +1,6 @@
 import SwiftUI
 import FirebaseFirestore
+import FirebaseMessaging
 
 extension RegionRuntimeAlert: Equatable {
     static func == (lhs: RegionRuntimeAlert, rhs: RegionRuntimeAlert) -> Bool {
@@ -306,6 +307,9 @@ struct RegionRuntimeAlertsView: View {
         
         Task {
             do {
+                // Get FCM token first
+                let fcmToken = try await Messaging.messaging().token()
+                
                 // Create a batch for new alerts
                 let batch = FirestoreManager.shared.db.batch()
                 var scheduledCount = 0
@@ -332,7 +336,9 @@ struct RegionRuntimeAlertsView: View {
                         "instanceState": instance.state.rawValue,
                         "deleted": false,
                         "launchTime": instance.launchTime ?? FieldValue.serverTimestamp(),
-                        "type": "instance_alert"
+                        "type": "runtime_alert",
+                        "fcmToken": fcmToken,
+                        "threshold": alert.hours * 60 + alert.minutes
                     ]
                     
                     batch.setData(alertData, forDocument: docRef)

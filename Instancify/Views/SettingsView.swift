@@ -7,21 +7,25 @@ struct SettingsView: View {
     @StateObject private var notificationSettings = NotificationSettingsViewModel.shared
     @StateObject private var hapticManager = HapticManager.shared
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var selectedSection: String?
     
     var body: some View {
-        NavigationView {
-            List {
-                appLockSection
-                appearanceSection
-                hapticsSection
-                awsSection
-                notificationsSection
-                pricingSection
-                aboutSection
-                signOutSection
-            }
-            .navigationTitle("Settings")
+        List(selection: $selectedSection) {
+            appLockSection
+            appearanceSection
+            hapticsSection
+            awsSection
+            notificationsSection
+            pricingSection
+            aboutSection
+            signOutSection
         }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Settings")
+        .navigationBarTitleDisplayMode(.large)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: selectedSection)
+        .tint(appearanceViewModel.currentAccentColor)
     }
     
     private var appLockSection: some View {
@@ -30,10 +34,25 @@ struct SettingsView: View {
                 AppLockSettingsView()
                     .environmentObject(appLockService)
             } label: {
-                Label("App Lock", systemImage: "lock")
+                HStack {
+                    Image(systemName: "lock.fill")
+                        .foregroundColor(.blue)
+                        .font(.system(size: 20))
+                        .frame(width: 28)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("App Lock")
+                            .font(.body)
+                        Text(appLockService.isPasswordSet() ? "PIN protection enabled" : "Set up PIN protection")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.vertical, 8)
             }
+            .modifier(SettingsRowStyle())
         } header: {
-            Text("Security")
+            SettingsSectionHeader(text: "Security")
         }
     }
     
@@ -42,43 +61,61 @@ struct SettingsView: View {
             NavigationLink {
                 AppearanceSettingsView()
             } label: {
-                Label {
-                    VStack(alignment: .leading) {
+                HStack {
+                    Image(systemName: "paintbrush.fill")
+                        .foregroundColor(appearanceViewModel.currentAccentColor)
+                        .font(.system(size: 20))
+                        .frame(width: 28)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
                         Text("Appearance")
+                            .font(.body)
                         Text("Customize app colors")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
-                } icon: {
-                    Image(systemName: "paintbrush.fill")
-                        .foregroundColor(appearanceViewModel.currentAccentColor)
                 }
+                .padding(.vertical, 8)
             }
+            .modifier(SettingsRowStyle())
         } header: {
-            Text("Customization")
+            SettingsSectionHeader(text: "Customization")
         }
     }
     
     private var hapticsSection: some View {
         Section {
-            Toggle(isOn: $hapticManager.isEnabled) {
-                Label {
-                    VStack(alignment: .leading) {
-                        Text("Haptic Feedback")
-                        Text("Vibration on interaction")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "waveform")
-                        .foregroundColor(.purple)
+            HStack {
+                Image(systemName: "waveform")
+                    .foregroundColor(.purple)
+                    .font(.system(size: 20))
+                    .frame(width: 28)
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Haptic Feedback")
+                        .font(.body)
+                    Text("Vibration on interaction")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                Toggle("", isOn: $hapticManager.isEnabled)
+                    .labelsHidden()
+                    .tint(appearanceViewModel.currentAccentColor)
+            }
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                hapticManager.isEnabled.toggle()
+                if hapticManager.isEnabled {
+                    hapticManager.impact(.light)
                 }
             }
-            .onChange(of: hapticManager.isEnabled) { _ in
-                hapticManager.impact(.light)
-            }
+            .modifier(SettingsRowStyle())
         } header: {
-            Text("Feedback")
+            SettingsSectionHeader(text: "Feedback")
         }
     }
     
@@ -86,34 +123,58 @@ struct SettingsView: View {
         Section {
             NavigationLink {
                 if let credentials = try? authManager.getAWSCredentials() {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("Access Key ID")
-                            .font(.headline)
-                        Text(credentials.accessKeyId)
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                        
-                        Text("Secret Access Key")
-                            .font(.headline)
-                        Text("••••••••")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            credentialCard(title: "Access Key ID", value: credentials.accessKeyId)
+                            credentialCard(title: "Secret Access Key", value: "••••••••")
+                        }
+                        .padding()
                     }
-                    .padding()
                     .navigationTitle("AWS Credentials")
+                    .background(Color(.systemGroupedBackground))
                 }
             } label: {
-                Label("AWS Credentials", systemImage: "key")
+                HStack {
+                    Image(systemName: "key.fill")
+                        .foregroundColor(.orange)
+                        .font(.system(size: 20))
+                        .frame(width: 28)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("AWS Credentials")
+                            .font(.body)
+                        Text("View access credentials")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.vertical, 8)
             }
+            .modifier(SettingsRowStyle())
             
             NavigationLink {
                 Text("Current Region: \(authManager.selectedRegion.displayName)")
                     .navigationTitle("AWS Region")
             } label: {
-                Label("AWS Region", systemImage: "globe")
+                HStack {
+                    Image(systemName: "globe")
+                        .foregroundColor(.green)
+                        .font(.system(size: 20))
+                        .frame(width: 28)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("AWS Region")
+                            .font(.body)
+                        Text(authManager.selectedRegion.displayName)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.vertical, 8)
             }
+            .modifier(SettingsRowStyle())
         } header: {
-            Text("AWS Configuration")
+            SettingsSectionHeader(text: "AWS Configuration")
         }
     }
     
@@ -123,20 +184,25 @@ struct SettingsView: View {
                 NotificationSettingsView()
                     .environmentObject(notificationSettings)
             } label: {
-                Label {
-                    VStack(alignment: .leading) {
+                HStack {
+                    Image(systemName: "bell.fill")
+                        .foregroundColor(appearanceViewModel.currentAccentColor)
+                        .font(.system(size: 20))
+                        .frame(width: 28)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
                         Text("Notifications")
+                            .font(.body)
                         Text("Runtime alerts & warnings")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
-                } icon: {
-                    Image(systemName: "bell.fill")
-                        .foregroundColor(appearanceViewModel.currentAccentColor)
                 }
+                .padding(.vertical, 8)
             }
+            .modifier(SettingsRowStyle())
         } header: {
-            Text("Notifications")
+            SettingsSectionHeader(text: "Notifications")
         }
     }
     
@@ -145,20 +211,25 @@ struct SettingsView: View {
             NavigationLink {
                 EC2PricingView()
             } label: {
-                Label {
-                    VStack(alignment: .leading) {
+                HStack {
+                    Image(systemName: "dollarsign.circle.fill")
+                        .foregroundColor(.green)
+                        .font(.system(size: 20))
+                        .frame(width: 28)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
                         Text("EC2 Pricing")
+                            .font(.body)
                         Text("View instance pricing by region")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
-                } icon: {
-                    Image(systemName: "dollarsign.circle.fill")
-                        .foregroundColor(.green)
                 }
+                .padding(.vertical, 8)
             }
+            .modifier(SettingsRowStyle())
         } header: {
-            Text("Pricing")
+            SettingsSectionHeader(text: "Pricing")
         }
     }
     
@@ -167,21 +238,102 @@ struct SettingsView: View {
             NavigationLink {
                 AboutView()
             } label: {
-                Label("About", systemImage: "info.circle")
+                HStack {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundColor(.blue)
+                        .font(.system(size: 20))
+                        .frame(width: 28)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("About")
+                            .font(.body)
+                        Text("App information & help")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.vertical, 8)
             }
+            .modifier(SettingsRowStyle())
         } header: {
-            Text("About")
+            SettingsSectionHeader(text: "About")
         }
     }
     
     private var signOutSection: some View {
         Section {
             Button(role: .destructive) {
-                authManager.signOut()
+                withAnimation {
+                    authManager.signOut()
+                }
             } label: {
-                Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                HStack {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                        .foregroundColor(.red)
+                        .font(.system(size: 20))
+                        .frame(width: 28)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Sign Out")
+                            .font(.body)
+                        Text("Log out of your AWS account")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.vertical, 8)
             }
+            .modifier(SettingsRowStyle())
         }
+    }
+    
+    private var rowBackground: some View {
+        RoundedRectangle(cornerRadius: 10)
+            .fill(colorScheme == .dark ? Color(.secondarySystemGroupedBackground) : .white)
+    }
+    
+    private func credentialCard(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+            Text(value)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(colorScheme == .dark ? Color(.secondarySystemBackground) : .white)
+                .shadow(color: Color.black.opacity(0.05), radius: 5, y: 2)
+        )
+    }
+}
+
+// Helper view for consistent row styling
+private struct SettingsRowStyle: ViewModifier {
+    @Environment(\.colorScheme) var colorScheme
+    
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(colorScheme == .dark ? Color(.secondarySystemGroupedBackground) : .white)
+            )
+            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+    }
+}
+
+// Helper view for section headers
+private struct SettingsSectionHeader: View {
+    let text: String
+    
+    var body: some View {
+        Text(text)
+            .textCase(.uppercase)
+            .font(.footnote)
+            .foregroundColor(.secondary)
+            .padding(.leading, 16)
     }
 }
 

@@ -1,760 +1,694 @@
 /**
  * Import function triggers from their respective submodules:
- *
- * import {onCall} from "firebase-functions/v2/https";
- * import {onDocumentWritten} from "firebase-functions/v2/firestore";
- *
- * See a full list of supported triggers at https://firebase.google.com/docs/functions
  */
 
 import * as logger from "firebase-functions/logger";
 import {onSchedule} from "firebase-functions/v2/scheduler";
-import {onCall, CallableRequest, HttpsError} from "firebase-functions/v2/https";
-import {onDocumentWritten} from "firebase-functions/v2/firestore";
+import {onCall, CallableRequest, HttpsError, onRequest} from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import {getFirestore} from "firebase-admin/firestore";
-import {getMessaging} from "firebase-admin/messaging";
-import * as functions from "firebase-functions";
 
-// Start writing functions
-// https://firebase.google.com/docs/functions/typescript
+// Initialize Firebase Admin SDK
+if (!admin.apps.length) {
+  admin.initializeApp();
+}
 
-// export const helloWorld = onRequest((request, response) => {
-//   logger.info("Hello logs!", {structuredData: true});
-//   response.send("Hello from Firebase!");
-// });
+// Get Firestore instance
+const db = getFirestore();
 
-// Initialize Firebase Admin
-admin.initializeApp();
-
-interface AlertData {
-  instanceID: string;
+interface RuntimeAlertRequest {
+  instanceId: string;
   instanceName: string;
   region: string;
   hours: number;
   minutes: number;
-  scheduledTime: admin.firestore.Timestamp;
-  status: string;
-  notificationSent: boolean;
-  instanceState: string;
-  deleted: boolean;
-  launchTime: admin.firestore.Timestamp;
   fcmToken: string;
-  createdAt: admin.firestore.Timestamp;
-  threshold: number;
-  type: string;
-  regions: string[];
-}
-
-interface NotificationData {
-    title: string;
-    body: string;
-    token: string;
-    payload?: Record<string, string>;
-}
-
-interface RuntimeAlertRequest {
-    instanceId: string;
-    instanceName: string;
-    region: string;
-    hours: number;
-    minutes: number;
-    regions?: string[];
-    fcmToken?: string;
-    instanceState?: string;
+  launchTime: number;
 }
 
 // Schedule a runtime alert
 export const scheduleRuntimeAlert = onCall(
   async (request: CallableRequest<RuntimeAlertRequest>) => {
     try {
-      const {instanceId, instanceName, region, hours, minutes, regions, fcmToken, instanceState} = request.data;
+      const {instanceId, instanceName, region, hours, minutes, fcmToken, launchTime} = request.data;
 
-      // Only create alerts for running instances
-      if (instanceState !== "running") {
-        logger.info(`Skipping alert creation for instance ${instanceName} - state is ${instanceState}`);
-        return {
-          success: false,
-          error: "Alerts can only be created for running instances",
-        };
-      }
+      // Log the request data
+      logger.info("\n📝 Scheduling Runtime Alert:");
+      logger.info(`• Instance: ${instanceName} (${instanceId})`);
+      logger.info(`• Region: ${region}`);
+      logger.info(`• Duration: ${hours}h ${minutes}m`);
+      logger.info(`• Launch Time: ${new Date(launchTime).toISOString()}`);
 
       // Validate required fields
-      if (!fcmToken) {
-        logger.error("Missing FCM token");
-        return {
-          success: false,
-          error: "FCM token is required",
-        };
+      if (!instanceId || !instanceName || !region || !fcmToken || !launchTime) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Missing required fields"
+        );
       }
 
-      // Create the new alert document with proper ID format
-      const alertId = `${region}_${instanceId}_${Date.now()}`;
-      const alertRef = admin.firestore().collection("scheduledAlerts").doc(alertId);
-
-      // Calculate scheduled time and threshold
+      const launchDate = new Date(launchTime);
+      
+      // Calculate threshold in minutes
       const threshold = (hours * 60) + minutes;
-      const scheduledTime = admin.firestore.Timestamp.fromDate(
-        new Date(Date.now() + threshold * 60 * 1000)
-      );
+      
+      // Calculate scheduled time from launch time
+      const scheduledTime = new Date(launchDate.getTime() + (threshold * 60 * 1000));
+      
+      logger.info(`• Threshold: ${threshold} minutes`);
+      logger.info(`• Scheduled Time: ${scheduledTime.toISOString()}`);
 
+      // Create new alert
+      const alertId = `${region}_${instanceId}_${threshold}`;
+      const alertDocRef = admin.firestore().collection("scheduledAlerts").doc(alertId);
+      
+      // Store all data as strings
       const alertData = {
-        instanceId: instanceId,
-        instanceName: instanceName || instanceId,
-        region,
-        hours: hours || 0,
-        minutes: minutes || 0,
-        scheduledTime,
+        instanceID: instanceId.toString(),
+        instanceName: instanceName.toString(),
+        region: region.toString(),
+        threshold: threshold.toString(),
+        scheduledTime: admin.firestore.Timestamp.fromDate(scheduledTime),
         status: "pending",
+        type: "runtime_alert",
+        fcmToken: fcmToken.toString(),
+        launchTime: admin.firestore.Timestamp.fromDate(launchDate),
         notificationSent: false,
-        createdAt: admin.firestore.Timestamp.now(),
-        regions: regions || [region],
-        threshold,
         deleted: false,
-        type: "instance_alert",
-        fcmToken,
-        instanceState: "running",
-        launchTime: admin.firestore.Timestamp.now(),
+        hours: hours.toString(),
+        minutes: minutes.toString(),
+        createdAt: admin.firestore.Timestamp.now()
       };
 
-      await alertRef.set(alertData);
-
-      return {
-        success: true,
-        alertId: alertRef.id,
-      };
+      await alertDocRef.set(alertData);
+      logger.info(`✅ Alert scheduled successfully`);
+      logger.info(`• Alert ID: ${alertId}`);
+      logger.info(`• Will trigger at: ${scheduledTime.toISOString()}`);
+      
+      return { success: true };
     } catch (error) {
-      logger.error("Error scheduling runtime alert:", error);
-      throw new HttpsError("internal", "Failed to schedule runtime alert");
+      logger.error("❌ Error scheduling alert:", error);
+      throw error instanceof HttpsError ? error : new HttpsError("internal", "Failed to schedule runtime alert");
     }
   }
 );
 
+// Add interface for alert data
+interface AlertData {
+  instanceID: string;
+  instanceName: string;
+  region: string;
+  threshold: string;
+  scheduledTime: FirebaseFirestore.Timestamp;
+  status: string;
+  type: string;
+  fcmToken: string;
+  launchTime: FirebaseFirestore.Timestamp;
+  notificationSent: boolean;
+  deleted: boolean;
+  hours: string;
+  minutes: string;
+  createdAt: FirebaseFirestore.Timestamp;
+  instanceState?: string;
+}
+
+interface AlertDoc {
+  doc: FirebaseFirestore.QueryDocumentSnapshot;
+  alert: AlertData;
+}
+
 // Check scheduled alerts every minute
-export const checkScheduledAlerts = onSchedule({
-  schedule: "* * * * *",
-  timeoutSeconds: 540,
-  memory: "256MiB",
-}, async () => {
-  const db = getFirestore();
-
+export const checkScheduledAlerts = onSchedule("*/1 * * * *", async (event) => {
   try {
-    logger.info("\n🔄 Starting Scheduled Alerts Check");
-    logger.info("----------------------------------------");
-    logger.info(`Current Time: ${new Date().toISOString()}`);
+    const currentTime = admin.firestore.Timestamp.now();
+    logger.info(`\n⏰ Checking alerts at ${currentTime.toDate().toISOString()}`);
 
-    const now = admin.firestore.Timestamp.now();
+    // Get all pending alerts that are not deleted and where instance is running
     const alertsRef = db.collection("scheduledAlerts");
-
-    logger.info("\n🔍 Query Conditions:");
-    logger.info("Current Time:", now.toDate().toISOString());
-    logger.info("Status: pending");
-    logger.info("notificationSent: false");
-    logger.info("deleted: false");
-    logger.info("instanceState: running");
-    logger.info("scheduledTime <= current time");
-
-    // Modified query to match the index structure
-    const dueAlerts = await alertsRef
+    const alerts = await alertsRef
       .where("status", "==", "pending")
       .where("notificationSent", "==", false)
-      .where("deleted", "==", false)
-      .where("instanceState", "==", "running")
-      .where("scheduledTime", "<=", now)
+      .where("instanceState", "==", "running")  // Only get alerts for running instances
+      .orderBy("scheduledTime", "asc")  // Order by scheduled time to process oldest first
       .get();
 
-    // Log the query parameters
-    logger.info("\n🔍 Detailed Query Parameters:");
-    logger.info({
-      status: "pending",
-      notificationSent: false,
-      deleted: false,
-      instanceState: "running",
-      scheduledTimeBefore: now.toDate().toISOString(),
+    logger.info(`\n📊 Found ${alerts.size} pending alerts for running instances`);
+
+    // Group alerts by instance to prevent duplicates
+    const alertsByInstance = new Map<string, AlertDoc[]>();
+    alerts.docs.forEach(doc => {
+      const alert = doc.data() as AlertData;
+      const instanceKey = `${alert.instanceID}_${alert.region}`;
+      logger.info(`Processing alert for instance ${instanceKey}`);
+      logger.info(`• Instance State: ${alert.instanceState}`);
+      logger.info(`• Region: ${alert.region}`);
+      
+      if (!alertsByInstance.has(instanceKey)) {
+        alertsByInstance.set(instanceKey, []);
+      }
+      alertsByInstance.get(instanceKey)?.push({ doc, alert });
     });
 
-    logger.info(`\n📊 Found ${dueAlerts.size} alerts matching query`);
+    // Process alerts by instance
+    for (const [instanceKey, instanceAlerts] of alertsByInstance) {
+      logger.info(`\n🔍 Processing alerts for instance: ${instanceKey}`);
+      
+      // Sort alerts by threshold
+      instanceAlerts.sort((a: AlertDoc, b: AlertDoc) => 
+        parseInt(a.alert.threshold) - parseInt(b.alert.threshold)
+      );
+      
+      // Get the earliest scheduled alert that's due
+      const dueAlert = instanceAlerts.find(({ alert }) => 
+        currentTime.toMillis() >= alert.scheduledTime.toMillis()
+      );
 
-    // Process each alert
-    const validAlerts = dueAlerts.docs.filter((doc) => {
-      const data = doc.data();
-      logger.info("\n🔍 Checking alert validity:");
-      logger.info("Document ID:", doc.id);
-      logger.info("Alert Data:");
-      logger.info("  • Device Token:", data.fcmToken ? "Present" : "Missing");
-      logger.info("  • Token Length:", data.fcmToken?.length || 0);
-      logger.info("  • Threshold:", data.threshold);
-      logger.info("  • Status:", data.status);
-      logger.info("  • Instance State:", data.instanceState);
-
-      // Check if alert has required fields
-      if (!data.fcmToken) {
-        logger.info("❌ Alert missing FCM token");
-        return false;
+      if (!dueAlert) {
+        logger.info(`⏳ No alerts due yet for this instance`);
+        continue;
       }
 
-      if (!data.threshold) {
-        logger.info("❌ Alert missing threshold");
-        return false;
-      }
+      const { doc, alert } = dueAlert;
+      logger.info(`\n🔔 Processing alert for ${alert.instanceName}:`);
+      logger.info(`• Instance ID: ${alert.instanceID}`);
+      logger.info(`• Region: ${alert.region}`);
+      logger.info(`• Threshold: ${alert.threshold} minutes`);
+      logger.info(`• Instance State: ${alert.instanceState}`);
 
-      return true;
-    });
-
-    logger.info(`\n✅ Found ${validAlerts.length} valid alerts to process`);
-
-    // Process valid alerts
-    for (const doc of validAlerts) {
-      const alertData = doc.data();
-
+      // Calculate runtime in minutes
+      const runtimeMinutes = Math.floor(
+        (currentTime.toMillis() - alert.launchTime.toMillis()) / 60000
+      );
+      
       try {
-        // Calculate instance runtime
-        const launchTime = alertData.launchTime.toDate();
-        const currentRuntime = Math.floor(
-          (now.toDate().getTime() - launchTime.getTime()) / 60000
-        ); // in minutes
-
-        logger.info("\n⏱️ Runtime Analysis:");
-        logger.info(`  • Launch Time: ${launchTime.toISOString()}`);
-        logger.info(`  • Current Runtime: ${currentRuntime}m`);
-        logger.info(`  • Alert Threshold: ${alertData.threshold} minutes`);
-
-        // Check if it's time to send the alert
-        if (currentRuntime >= alertData.threshold) {
-          // Send notification with device token
-          const message: admin.messaging.TokenMessage = {
-            token: alertData.fcmToken,
-            notification: {
-              title: "⏰ Runtime Alert",
-              body: `${alertData.instanceName} has been running for ` +
-                `${Math.floor(currentRuntime / 60)}h ${currentRuntime % 60}m`,
-            },
-            data: {
-              type: "runtime_alert",
-              instanceId: alertData.instanceId,
-              instanceName: alertData.instanceName,
-              region: alertData.region,
-              runtime: String(currentRuntime),
-              threshold: String(alertData.threshold),
-              launchTime: launchTime.toISOString(),
-            },
-            apns: {
-              payload: {
-                aps: {
-                  "content-available": 1,
-                  "sound": "default",
-                  "badge": 1,
-                },
-              },
-              headers: {
-                "apns-push-type": "alert",
-                "apns-priority": "10",
-              },
-            },
-            android: {
-              priority: "high",
-            },
-          };
-
-          // Send the notification
-          await admin.messaging().send(message);
-          logger.info("✅ Notification sent successfully");
-
-          // Update alert status
-          await doc.ref.update({
-            status: "completed",
-            notificationSent: true,
-            processedAt: now,
-          });
-          logger.info("✅ Alert status updated to completed");
-        } else {
-          logger.info("⏳ Alert threshold not yet reached");
+        // Double check instance state before sending notification
+        if (alert.instanceState !== "running") {
+          logger.info(`🛑 Instance is no longer running (state: ${alert.instanceState}), cleaning up alerts`);
+          // Clean up all alerts for this instance
+          const batch = db.batch();
+          instanceAlerts.forEach(({ doc }) => batch.delete(doc.ref));
+          await batch.commit();
+          continue;
         }
+        
+        logger.info(`• Current Runtime: ${Math.floor(runtimeMinutes / 60)}h ${runtimeMinutes % 60}m`);
+
+        // Send notification
+        const message = {
+          token: alert.fcmToken,
+          notification: {
+            title: "⏰ Runtime Alert",
+            body: `${alert.instanceName} has been running for ${Math.floor(runtimeMinutes / 60)}h ${runtimeMinutes % 60}m`
+          },
+          data: {
+            type: "runtime_alert",
+            instanceId: alert.instanceID.toString(),
+            instanceName: alert.instanceName.toString(),
+            region: alert.region.toString(),
+            runtime: runtimeMinutes.toString(),
+            threshold: alert.threshold.toString(),
+            launchTime: alert.launchTime.toDate().toISOString(),
+            scheduledTime: alert.scheduledTime.toDate().toISOString(),
+            currentTime: currentTime.toDate().toISOString()
+          }
+        };
+
+        await admin.messaging().send(message);
+        logger.info(`✅ Notification sent for ${alert.instanceName}`);
+
+        // Add to notification history
+        const historyRef = db.collection("notificationHistory").doc();
+        await historyRef.set({
+          type: "runtime_alert",
+          title: message.notification.title,
+          body: message.notification.body,
+          instanceId: alert.instanceID,
+          instanceName: alert.instanceName,
+          region: alert.region,
+          runtime: runtimeMinutes,
+          threshold: parseInt(alert.threshold),
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          time: currentTime.toDate().toISOString(),
+          status: "completed",
+          data: message.data,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          formattedTime: currentTime.toDate().toLocaleTimeString('en-US', { 
+            hour: 'numeric',
+            minute: 'numeric',
+            hour12: true 
+          })
+        });
+
+        // Delete the processed alert and any alerts with lower thresholds
+        const batch = db.batch();
+        instanceAlerts
+          .filter(({ alert: a }) => parseInt(a.threshold) <= parseInt(alert.threshold))
+          .forEach(({ doc }) => batch.delete(doc.ref));
+        await batch.commit();
+        
+        logger.info("✅ Alert processed and cleaned up");
+
       } catch (error) {
-        logger.error("❌ Error processing alert:", error);
-        // Update alert status to failed
-        await doc.ref.update({
-          status: "failed",
+        logger.error(`❌ Error processing alert:`, error);
+        // Add failed notification to history
+        const historyRef = db.collection("notificationHistory").doc();
+        await historyRef.set({
+          type: "runtime_alert",
+          title: "⏰ Runtime Alert",
+          body: `Failed to send alert for ${alert.instanceName}`,
+          instanceId: alert.instanceID,
+          instanceName: alert.instanceName,
+          region: alert.region,
+          runtime: runtimeMinutes,
+          threshold: parseInt(alert.threshold),
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          time: currentTime.toDate().toISOString(),
+          status: "error",
           error: error instanceof Error ? error.message : "Unknown error",
-          processedAt: now,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          formattedTime: currentTime.toDate().toLocaleTimeString('en-US', { 
+            hour: 'numeric',
+            minute: 'numeric',
+            hour12: true 
+          })
+        });
+
+        // Mark alert as error but don't delete it
+        await doc.ref.update({
+          error: error instanceof Error ? error.message : "Unknown error",
+          status: "error",
+          lastErrorAt: currentTime
         });
       }
     }
-
-    logger.info("\n✅ Alert processing completed");
   } catch (error) {
-    logger.error("❌ Error in checkScheduledAlerts:", error);
-    throw error;
+    logger.error("❌ Error checking alerts:", error);
   }
 });
 
-// Send push notification
-export const sendNotification = onCall(async (request) => {
-  const messaging = getMessaging();
-
-  try {
-    logger.info("\n📱 Processing notification request");
-    logger.info("----------------------------------------");
-    logger.info("📊 Notification Data:", request.data);
-
-    const {token, notification, data: messageData, apns} = request.data;
-
-    if (!token || !notification) {
-      throw new Error("Missing required notification data");
-    }
-
-    const message = {
-      token,
-      notification,
-      data: messageData || {},
-      apns: apns || {
-        payload: {
-          aps: {
-            sound: "default",
-            badge: 1,
-          },
-        },
-      },
-    };
-
-    logger.info("📤 Sending message:", message);
-    const result = await messaging.send(message);
-    logger.info("✅ Message sent successfully:", result);
-
-    return {success: true, messageId: result};
-  } catch (error: unknown) {
-    if (error instanceof Error) {
-      logger.error("❌ Error sending notification:", error);
-      throw new Error(`Failed to send notification: ${error.message}`);
-    }
-    throw error;
-  }
-});
-
-export const onAlertUpdate = onDocumentWritten("scheduledAlerts/{alertId}",
-  async (event) => {
-    if (!event.data) return;
-
-    const newData = event.data.after?.data() as AlertData | undefined;
-    if (!newData) {
-      // Document was deleted
-      return;
-    }
-
+// Delete alerts for an instance
+export const deleteInstanceAlerts = onCall(
+  async (request: CallableRequest<{
+    instanceId: string;
+    region: string;
+  }>) => {
     try {
-      // Only process if status is pending
-      if (newData.status === "pending") {
-        const now = admin.firestore.Timestamp.now();
-        const scheduledTime = newData.scheduledTime.toDate();
+      const {instanceId, region} = request.data;
+      logger.info("\n🗑️ Deleting alerts for instance");
+      logger.info(`• Instance ID: ${instanceId}`);
+      logger.info(`• Region: ${region}`);
 
-        // Check if it's time to process the alert
-        if (scheduledTime <= now.toDate()) {
-          // Update alert status
-          await event.data.after.ref.update({
-            status: "completed",
-            notificationSent: true,
-            processedAt: now,
-          });
-
-          // Send notification
-          const message = {
-            notification: {
-              title: "Runtime Alert",
-              body: `Instance ${newData.instanceName} has been running for ${newData.hours}h ${newData.minutes}m`,
-            },
-            data: {
-              type: "runtime_alert",
-              instanceId: newData.instanceID,
-              instanceName: newData.instanceName,
-              region: newData.region,
-              hours: String(newData.hours),
-              minutes: String(newData.minutes),
-            },
-            topic: "runtime_alerts",
-          };
-
-          await admin.messaging().send(message);
-          logger.info(`Successfully sent notification for instance ${newData.instanceName}`);
-        }
+      if (!instanceId || !region) {
+        logger.error("❌ Missing required fields:", {instanceId, region});
+        throw new HttpsError("invalid-argument", "Missing required fields");
       }
-    } catch (error) {
-      logger.error("Error in onAlertUpdate:", error);
-      // Don't throw error to prevent infinite retries
-    }
-  });
 
-export const notifyUser = onCall(
-  async (request: CallableRequest<NotificationData>) => {
-    try {
-      const {title, body, token, payload} = request.data;
-
-      const message = {
-        notification: {
-          title,
-          body,
-        },
-        data: payload || {},
-        token,
-      };
-
-      const response = await admin.messaging().send(message);
-      logger.info("Successfully sent message:", response);
-
-      return {success: true, messageId: response};
-    } catch (error) {
-      logger.error("Error sending notification:", error);
-      throw new HttpsError("internal", "Error sending notification");
-    }
-  }
-);
-
-// Add method to handle instance state changes
-export const handleInstanceStateChange = onCall(async (request: CallableRequest<{
-  instanceId: string;
-  instanceName: string;
-  region: string;
-  state: string;
-  launchTime: string;
-}>) => {
-  const db = getFirestore();
-
-  try {
-    const {instanceId, instanceName, region, state, launchTime} = request.data;
-
-    logger.info("\n🔄 Handling instance state change");
-    logger.info(`  • Instance: ${instanceName} (${instanceId})`);
-    logger.info(`  • Region: ${region}`);
-    logger.info(`  • State: ${state}`);
-    logger.info(`  • Launch Time: ${launchTime}`);
-
-    // If state is not running, immediately delete any existing alerts
-    if (state !== "running") {
-      const msg = `Deleting alerts for stopped instance ${instanceName} (${instanceId}) in region ${region}`;
-      logger.info(msg);
-
-      // Delete all alerts for this instance
+      // Get all alerts for this instance
       const alertsRef = db.collection("scheduledAlerts");
-      const existingAlerts = await alertsRef
-        .where("instanceId", "==", instanceId)
+      const alerts = await alertsRef
+        .where("instanceID", "==", instanceId)
+        .where("region", "==", region)
         .get();
 
-      if (!existingAlerts.empty) {
+      if (!alerts.empty) {
+        logger.info(`Found ${alerts.size} alerts to delete`);
+        
+        // Get instance name from first alert for notification
+        const instanceName = alerts.docs[0].data().instanceName;
+        const fcmToken = alerts.docs[0].data().fcmToken;
+
+        // Delete all alerts
         const batch = db.batch();
-        existingAlerts.forEach((doc) => {
+        alerts.docs.forEach(doc => {
+          logger.info(`🗑️ Deleting alert: ${doc.id}`);
           batch.delete(doc.ref);
         });
         await batch.commit();
-        logger.info(`  ✅ Deleted ${existingAlerts.size} alerts for stopped instance`);
+        logger.info(`✅ Successfully deleted ${alerts.size} alerts`);
+        
+        // Add cleanup notification to history
+        const historyRef = db.collection("notificationHistory").doc();
+        const notificationData = {
+          type: "alert_cleanup",
+          title: "Alerts Cancelled",
+          body: `All runtime alerts for ${instanceName} have been cancelled`,
+          instanceId: instanceId,
+          instanceName: instanceName,
+          region: region,
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          time: new Date().toISOString(),
+          status: "completed",
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          formattedTime: new Date().toLocaleTimeString('en-US', { 
+            hour: 'numeric',
+            minute: 'numeric',
+            hour12: true 
+          })
+        };
+        
+        await historyRef.set(notificationData);
+        logger.info("✅ Added cleanup notification to history");
+        
+        // Send notification about cancelled alerts
+        try {
+          // Skip FCM in emulator
+          if (process.env.FUNCTIONS_EMULATOR !== "true") {
+            const message = {
+              token: fcmToken,
+              notification: {
+                title: "Alerts Cancelled",
+                body: `All runtime alerts for ${instanceName} have been cancelled`
+              },
+              data: {
+                type: "alert_cleanup",
+                instanceId: instanceId,
+                instanceName: instanceName,
+                region: region
+              }
+            };
+            await admin.messaging().send(message);
+            logger.info("✅ Cleanup notification sent");
+          } else {
+            logger.info("ℹ️ Skipping FCM notification in emulator");
+          }
+        } catch (error) {
+          logger.error("❌ Error sending cleanup notification:", error);
+        }
+
+        return {
+          success: true,
+          alertsDeleted: alerts.size
+        };
       } else {
-        logger.info("  ℹ️ No alerts found for this instance");
+        logger.info("ℹ️ No alerts found to delete");
+        return {
+          success: true,
+          alertsDeleted: 0
+        };
       }
-      return {success: true, message: msg};
+    } catch (error) {
+      logger.error("❌ Error deleting alerts:", error);
+      throw error instanceof HttpsError ? error : new HttpsError(
+        "internal",
+        "Failed to delete alerts"
+      );
     }
+  }
+);
 
-    // Get alerts for this region
-    const alertsRef = db.collection("scheduledAlerts");
-    const alerts = await alertsRef
-      .where("region", "==", region)
-      .where("instanceState", "==", state)
-      .get();
+// Modify handleInstanceStateChange to use the new function
+export const handleInstanceStateChange = onCall(
+  async (request: CallableRequest<{
+    instanceId: string;
+    region: string;
+    newState: string;
+  }>) => {
+    try {
+      const {instanceId, region, newState} = request.data;
+      logger.info("\n🔄 Processing state change request:");
+      logger.info(`• Instance ID: ${instanceId}`);
+      logger.info(`• Region: ${region}`);
+      logger.info(`• New State: ${newState}`);
+      logger.info(`• Raw request data: ${JSON.stringify(request.data)}`);
 
-    if (alerts.empty) {
-      logger.info(`  ℹ️ No alerts configured for region ${region}`);
-      return {success: true};
-    }
+      if (!instanceId || !region || !newState) {
+        logger.error("❌ Missing required fields:", {instanceId, region, newState});
+        throw new HttpsError("invalid-argument", "Missing required fields");
+      }
 
-    logger.info(`  📋 Found ${alerts.size} alerts to schedule`);
+      // If instance is stopped/stopping/terminated, delete alerts
+      if (newState === "stopped" || newState === "stopping" || newState === "terminated") {
+        logger.info(`\n🗑️ Instance is ${newState}, deleting alerts`);
+        
+        try {
+          // Call the new deleteInstanceAlerts function directly
+          const deleteResult = await db.collection("scheduledAlerts")
+            .where("instanceID", "==", instanceId)
+            .where("region", "==", region)
+            .get();
 
-    const batch = db.batch();
-    let scheduledCount = 0;
+          if (!deleteResult.empty) {
+            const batch = db.batch();
+            deleteResult.docs.forEach(doc => {
+              logger.info(`🗑️ Deleting alert: ${doc.id}`);
+              batch.delete(doc.ref);
+            });
+            await batch.commit();
+            logger.info(`✅ Successfully deleted ${deleteResult.size} alerts`);
 
-    for (const doc of alerts.docs) {
-      const alertData = doc.data() as AlertData;
+            // Get instance name from first alert for notification
+            const instanceName = deleteResult.docs[0].data().instanceName;
+            const fcmToken = deleteResult.docs[0].data().fcmToken;
 
-      // Calculate threshold in minutes
-      const threshold = (alertData.hours * 60) + alertData.minutes;
+            // Add cleanup notification to history
+            const historyRef = db.collection("notificationHistory").doc();
+            const notificationData = {
+              type: "alert_cleanup",
+              title: "Alerts Cancelled",
+              body: `All runtime alerts for ${instanceName} have been cancelled because the instance was ${newState}`,
+              instanceId: instanceId,
+              instanceName: instanceName,
+              region: region,
+              timestamp: admin.firestore.FieldValue.serverTimestamp(),
+              time: new Date().toISOString(),
+              status: "completed",
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+              formattedTime: new Date().toLocaleTimeString('en-US', { 
+                hour: 'numeric',
+                minute: 'numeric',
+                hour12: true 
+              })
+            };
+            
+            await historyRef.set(notificationData);
+            logger.info("✅ Added cleanup notification to history");
 
-      // Calculate scheduled time
-      const launchTimeDate = new Date(launchTime);
-      const scheduledTime = new Date(launchTimeDate.getTime() + threshold * 60000);
+            // Send notification about cancelled alerts
+            try {
+              // Skip FCM in emulator
+              if (process.env.FUNCTIONS_EMULATOR !== "true") {
+                const message = {
+                  token: fcmToken,
+                  notification: {
+                    title: "Alerts Cancelled",
+                    body: `All runtime alerts for ${instanceName} have been cancelled because the instance was ${newState}`
+                  },
+                  data: {
+                    type: "alert_cleanup",
+                    instanceId: instanceId,
+                    instanceName: instanceName,
+                    region: region,
+                    state: newState
+                  }
+                };
+                await admin.messaging().send(message);
+                logger.info("✅ Cleanup notification sent");
+              } else {
+                logger.info("ℹ️ Skipping FCM notification in emulator");
+              }
+            } catch (error) {
+              logger.error("❌ Error sending cleanup notification:", error);
+            }
+          } else {
+            logger.info("ℹ️ No alerts found to delete");
+          }
+          
+          logger.info("✅ Alert deletion completed");
+        } catch (error) {
+          logger.error("❌ Error deleting alerts:", error);
+          throw new HttpsError("internal", "Failed to delete alerts");
+        }
+      } else {
+        // Update instance state in all alerts
+        try {
+          const alertsRef = db.collection("scheduledAlerts");
+          const alerts = await alertsRef
+            .where("instanceID", "==", instanceId)
+            .where("region", "==", region)
+            .get();
 
-      // Create alert document
-      const alertId = `${region}_${instanceId}_${Date.now()}`;
-      const alertRef = alertsRef.doc(alertId);
+          if (!alerts.empty) {
+            const batch = db.batch();
+            alerts.docs.forEach(doc => {
+              batch.update(doc.ref, { instanceState: newState });
+            });
+            await batch.commit();
+            logger.info(`✅ Updated state to "${newState}" for ${alerts.size} alerts`);
+          }
+        } catch (error) {
+          logger.error("❌ Error updating alert states:", error);
+          throw new HttpsError("internal", "Failed to update alert states");
+        }
+      }
 
-      const alertDataToUpdate: Partial<AlertData> = {
-        instanceID: instanceId,
-        instanceName: instanceName,
-        region: region,
-        hours: alertData.hours,
-        minutes: alertData.minutes,
-        scheduledTime: admin.firestore.Timestamp.fromDate(scheduledTime),
-        status: "pending",
-        notificationSent: false,
-        instanceState: state,
-        deleted: false,
-        launchTime: admin.firestore.Timestamp.fromDate(launchTimeDate),
-        fcmToken: alertData.fcmToken,
-        createdAt: admin.firestore.Timestamp.now(),
-        threshold: threshold,
-        type: "runtime_alert",
+      return {
+        success: true,
+        instanceId,
+        newState,
+        alertsCleanedUp: true
       };
+      
+    } catch (error) {
+      logger.error("❌ Error in handleInstanceStateChange:", error);
+      throw error instanceof HttpsError ? error : new HttpsError(
+        "internal", 
+        "Failed to process state change"
+      );
+    }
+  }
+);
 
-      batch.set(alertRef, alertDataToUpdate);
-      scheduledCount += 1;
+// Send push notification
+export const sendNotificationFunction = onRequest({
+  region: 'us-central1',
+  maxInstances: 10,
+  cors: true
+}, async (req, res) => {
+  try {
+    logger.info("\n📱 Processing notification request");
+    logger.info("----------------------------------------");
+    logger.info("📊 Notification Data:", req.body);
 
-      logger.info("  ✅ Scheduled alert:");
-      logger.info(`    • ID: ${alertId}`);
-      logger.info(`    • Hours: ${alertData.hours}`);
-      logger.info(`    • Minutes: ${alertData.minutes}`);
-      logger.info(`    • Threshold: ${threshold} minutes`);
-      logger.info(`    • Scheduled Time: ${scheduledTime}`);
+    // The data comes from the request body
+    const notificationData = req.body.data || req.body;
+    const { token, title, body, data } = notificationData;
+
+    if (!token || !title || !body) {
+      logger.error("❌ Missing required fields:", { token, title, body });
+      res.status(400).json({ data: { error: "Missing required notification data" } });
+      return;
     }
 
-    // Commit the batch
-    await batch.commit();
-    logger.info(`  ✅ Successfully scheduled ${scheduledCount} alerts`);
+    // Construct the message
+    const message: admin.messaging.Message = {
+      token,
+      notification: {
+        title,
+        body
+      },
+      data: data || {},
+      android: {
+        priority: "high",
+        notification: {
+          channelId: "default"
+        }
+      },
+      apns: {
+        payload: {
+          aps: {
+            alert: {
+              title,
+              body
+            },
+            sound: "default",
+            badge: 1
+          }
+        },
+        headers: {
+          "apns-priority": "10",
+          "apns-topic": "tech.md.Instancify"
+        }
+      }
+    };
 
-    return {success: true};
-  } catch (error) {
-    logger.error("❌ Failed to schedule alerts:", error);
-    throw new HttpsError("internal", "Failed to schedule alerts");
+    try {
+      // Save to notification history
+      await admin.firestore().collection("notificationHistory").add({
+        type: data?.type || "custom",
+        title,
+        body,
+        timestamp: admin.firestore.Timestamp.now(),
+        ...data
+      });
+
+      // Send the notification
+      const response = await admin.messaging().send(message);
+      logger.info("✅ Message sent successfully:", response);
+      res.json({ 
+        data: {
+          success: true,
+          messageId: response,
+          notification: {
+            title,
+            body,
+            data
+          }
+        }
+      });
+    } catch (error: any) {
+      logger.error("❌ Error sending notification:", error);
+      res.status(500).json({ data: { error: `Failed to send notification: ${error.message}` } });
+    }
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      logger.error("❌ Error in sendNotificationFunction:", error);
+      res.status(500).json({ data: { error: `Failed to process notification: ${error.message}` } });
+    } else {
+      res.status(500).json({ data: { error: "An unknown error occurred" } });
+    }
   }
 });
 
-// Update the cleanup function to be more aggressive
-export const cleanupStoppedInstanceAlerts = onSchedule({
-  schedule: "*/5 * * * *",
-  timeoutSeconds: 300,
-  memory: "256MiB",
-}, async () => {
-  const db = getFirestore();
-
+// Add cleanup function to delete old data
+export const cleanupOldData = onSchedule("0 0 * * *", async (event) => {
   try {
-    logger.info("\n🧹 Starting Cleanup of Stopped Instance Alerts");
-    logger.info("----------------------------------------");
-
-    const alertsRef = db.collection("scheduledAlerts");
-
-    // Get all alerts for non-running instances
-    const stoppedInstanceAlerts = await alertsRef
-      .where("instanceState", "!=", "running")
+    logger.info("\n🧹 Starting daily cleanup");
+    const db = getFirestore();
+    const batch = db.batch();
+    const batchSize = 450; // Firestore batch limit is 500, using 450 to be safe
+    let totalDeleted = 0;
+    
+    // Calculate cutoff date (48 hours ago)
+    const cutoffDate = new Date();
+    cutoffDate.setHours(cutoffDate.getHours() - 48);
+    const cutoffTimestamp = admin.firestore.Timestamp.fromDate(cutoffDate);
+    
+    // 1. Clean up notification history
+    logger.info("\n🗑️ Cleaning up notification history");
+    const historyDocs = await db.collection("notificationHistory")
+      .where("timestamp", "<=", cutoffTimestamp)
+      .limit(batchSize)
       .get();
-
-    if (stoppedInstanceAlerts.empty) {
-      logger.info("No alerts for stopped instances found");
-      return;
-    }
-
-    logger.info(`Found ${stoppedInstanceAlerts.size} alerts for stopped instances`);
-
-    const batch = db.batch();
-    for (const doc of stoppedInstanceAlerts.docs) {
-      // Delete instead of marking as cancelled
+    
+    historyDocs.forEach(doc => {
       batch.delete(doc.ref);
-    }
-
-    await batch.commit();
-    logger.info("✅ Successfully deleted alerts for stopped instances");
-  } catch (error) {
-    logger.error("❌ Error cleaning up stopped instance alerts:", error);
-    throw error;
-  }
-});
-
-// Clean up all alerts
-export const cleanupAllAlerts = functions.https.onRequest(async (req, res) => {
-  try {
-    const alertsRef = admin.firestore().collection("scheduledAlerts");
-
-    // Get alerts with specific statuses, deleted=true, or alert definitions marked as deleted
-    const [statusQuery, deletedQuery, deletedDefinitionsQuery, invalidAlertsQuery, duplicateAlertsQuery] = await Promise.all([
-      alertsRef.where("status", "in", ["completed", "cancelled", "failed", "deleted"]).get(),
-      alertsRef.where("deleted", "==", true).get(),
-      alertsRef.where("type", "==", "alert_definition").where("status", "==", "deleted").get(),
-      alertsRef.where("status", "==", "pending").get(), // Get pending alerts to check for invalid ones
-      alertsRef.orderBy("scheduledTime").get(), // Get all alerts to check for duplicates
-    ]);
-
-    // Find duplicate alerts (same instance, same scheduled time)
-    const alertsByKey = new Map<string, admin.firestore.QueryDocumentSnapshot[]>();
-    duplicateAlertsQuery.docs.forEach((doc) => {
-      const data = doc.data();
-      const key = `${data.instanceID}_${data.scheduledTime.toDate().getTime()}`;
-      const alerts = alertsByKey.get(key) || [];
-      alerts.push(doc);
-      alertsByKey.set(key, alerts);
+      totalDeleted++;
     });
-
-    // Keep only the most recent alert for each instance/time combination
-    const duplicatesToDelete = new Set<string>();
-    alertsByKey.forEach((docs) => {
-      if (docs.length > 1) {
-        // Sort by creation time, keep the most recent
-        docs.sort((a, b) => b.createTime.toDate().getTime() - a.createTime.toDate().getTime());
-        // Mark all but the most recent for deletion
-        docs.slice(1).forEach((doc) => duplicatesToDelete.add(doc.id));
-      }
-    });
-
-    // Combine unique documents from all queries
-    const docsToDelete = new Set([
-      ...statusQuery.docs,
-      ...deletedQuery.docs,
-      ...deletedDefinitionsQuery.docs,
-      // Add invalid alerts (missing FCM token or undefined threshold)
-      ...invalidAlertsQuery.docs.filter((doc) => {
-        const data = doc.data();
-        return !data.fcmToken || data.threshold === undefined || data.threshold <= 0;
-      }),
-      // Add duplicate alerts
-      ...duplicateAlertsQuery.docs.filter((doc) => duplicatesToDelete.has(doc.id)),
-    ].map((doc) => doc.id));
-
-    if (docsToDelete.size === 0) {
-      logger.info("No alerts found to clean up");
-      res.json({success: true, message: "No alerts found to clean up", deletedCount: 0});
-      return;
-    }
-
-    const batch = admin.firestore().batch();
-    docsToDelete.forEach((docId) => {
-      batch.delete(alertsRef.doc(docId));
-    });
-
-    await batch.commit();
-    const deletedCount = docsToDelete.size;
-    logger.info(`Successfully deleted ${deletedCount} alerts`);
-
-    res.json({success: true, message: `Successfully deleted ${deletedCount} alerts`, deletedCount});
-  } catch (error) {
-    logger.error("Error cleaning up alerts:", error);
-    res.status(500).json({success: false, error: "Failed to clean up alerts"});
-  }
-});
-
-// Cleanup old alerts - runs daily at midnight
-export const cleanupOldAlerts = onSchedule({
-  schedule: "0 0 * * *", // Run daily at midnight
-  timeoutSeconds: 540,
-  memory: "256MiB",
-}, async () => {
-  try {
-    logger.info("\n🧹 Starting Daily Alert Cleanup");
-    logger.info("----------------------------------------");
-
-    const db = getFirestore();
-    const batch = db.batch();
-    let documentsToDelete = 0;
-
-    // Get timestamp for 24 hours ago
-    const oneDayAgo = new Date();
-    oneDayAgo.setHours(oneDayAgo.getHours() - 24);
-    const cutoffTime = admin.firestore.Timestamp.fromDate(oneDayAgo);
-
-    // Query for old completed/cancelled/failed alerts
-    const oldAlertsQuery = db.collection("scheduledAlerts")
-      .where("type", "in", ["runtime_alert", "auto_stop_alert"])
-      .where("status", "in", ["completed", "cancelled", "failed", "deleted"])
-      .where("updatedAt", "<=", cutoffTime);
-
-    const oldAlerts = await oldAlertsQuery.get();
-    logger.info(`Found ${oldAlerts.size} old alerts to clean up`);
-
-    oldAlerts.forEach((doc) => {
+    
+    // 2. Clean up failed notifications
+    logger.info("🗑️ Cleaning up failed notifications");
+    const failedDocs = await db.collection("failedNotifications")
+      .where("timestamp", "<=", cutoffTimestamp)
+      .limit(batchSize - totalDeleted)
+      .get();
+    
+    failedDocs.forEach(doc => {
       batch.delete(doc.ref);
-      documentsToDelete++;
+      totalDeleted++;
     });
-
-    // Query for orphaned alerts (no FCM token or invalid state)
-    const orphanedAlertsQuery = db.collection("scheduledAlerts")
-      .where("type", "in", ["runtime_alert", "auto_stop_alert"])
-      .where("status", "==", "pending")
-      .where("notificationSent", "==", false);
-
-    const orphanedAlerts = await orphanedAlertsQuery.get();
-    orphanedAlerts.forEach((doc) => {
-      const data = doc.data();
-      const isOrphaned = !data.fcmToken ||
-        data.instanceState !== "running" ||
-        !data.scheduledTime;
-      if (isOrphaned) {
-        batch.delete(doc.ref);
-        documentsToDelete++;
-      }
+    
+    // 3. Clean up completed/failed alerts
+    logger.info("🗑️ Cleaning up old alerts");
+    const alertDocs = await db.collection("scheduledAlerts")
+      .where("status", "in", ["completed", "failed"])
+      .where("createdAt", "<=", cutoffTimestamp)
+      .limit(batchSize - totalDeleted)
+      .get();
+    
+    alertDocs.forEach(doc => {
+      batch.delete(doc.ref);
+      totalDeleted++;
     });
-
-    // Commit the batch if there are documents to delete
-    if (documentsToDelete > 0) {
+    
+    // Commit the batch
+    if (totalDeleted > 0) {
       await batch.commit();
-      logger.info(`✅ Successfully deleted ${documentsToDelete} notifications older than 24 hours`);
+      logger.info(`✅ Cleanup completed. Deleted ${totalDeleted} documents`);
     } else {
-      logger.info("No notifications to clean up");
+      logger.info("✅ No documents to clean up");
     }
+    
   } catch (error) {
-    logger.error("❌ Error in notification cleanup:", error);
-    throw error;
-  }
-});
-
-// Manual trigger for cleanup
-export const triggerCleanup = onCall(async () => {
-  try {
-    logger.info("\n🧹 Starting Manual Notification Cleanup");
-    logger.info("----------------------------------------");
-
-    const db = getFirestore();
-    const batch = db.batch();
-    let documentsToDelete = 0;
-
-    // Get timestamp for 24 hours ago
-    const oneDayAgo = new Date();
-    oneDayAgo.setHours(oneDayAgo.getHours() - 24);
-    const cutoffTime = admin.firestore.Timestamp.fromDate(oneDayAgo);
-
-    // Query for old completed/cancelled/failed alerts
-    const oldAlertsQuery = db.collection("scheduledAlerts")
-      .where("type", "in", ["runtime_alert", "auto_stop_alert"])
-      .where("status", "in", ["completed", "cancelled", "failed", "deleted"])
-      .where("updatedAt", "<=", cutoffTime);
-
-    const oldAlerts = await oldAlertsQuery.get();
-    logger.info(`Found ${oldAlerts.size} old notifications to clean up`);
-
-    oldAlerts.forEach((doc) => {
-      batch.delete(doc.ref);
-      documentsToDelete++;
-    });
-
-    // Query for orphaned alerts (no FCM token or invalid state)
-    const orphanedAlertsQuery = db.collection("scheduledAlerts")
-      .where("type", "in", ["runtime_alert", "auto_stop_alert"])
-      .where("status", "==", "pending")
-      .where("notificationSent", "==", false);
-
-    const orphanedAlerts = await orphanedAlertsQuery.get();
-    orphanedAlerts.forEach((doc) => {
-      const data = doc.data();
-      const isOrphaned = !data.fcmToken ||
-        data.instanceState !== "running" ||
-        !data.scheduledTime;
-      if (isOrphaned) {
-        batch.delete(doc.ref);
-        documentsToDelete++;
-      }
-    });
-
-    // Commit the batch if there are documents to delete
-    if (documentsToDelete > 0) {
-      await batch.commit();
-      logger.info(`✅ Successfully deleted ${documentsToDelete} notifications older than 24 hours`);
-      return {success: true, deletedCount: documentsToDelete};
-    } else {
-      logger.info("No notifications to clean up");
-      return {success: true, deletedCount: 0};
-    }
-  } catch (error) {
-    logger.error("❌ Error in notification cleanup:", error);
-    throw new HttpsError("internal", "Failed to clean up notifications");
+    logger.error("❌ Error during cleanup:", error);
   }
 });

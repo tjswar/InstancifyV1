@@ -10,6 +10,7 @@ import AWSEC2
 class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate, MessagingDelegate {
     static let shared = AppDelegate()
 
+    // Required UIApplicationDelegate method
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         print("\n🚀 Application did finish launching")
         
@@ -350,10 +351,22 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     // MARK: - UNUserNotificationCenterDelegate
     
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .sound, .badge])
+        // Always show notification banner, play sound, and update badge
+        if #available(iOS 14.0, *) {
+            completionHandler([.banner, .sound, .badge, .list])
+        } else {
+            completionHandler([.alert, .sound, .badge])
+        }
     }
     
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
+        let userInfo = response.notification.request.content.userInfo
+        
+        // Handle notification tap
+        if let notificationData = userInfo["notificationData"] as? [String: Any] {
+            print("📱 User tapped notification:", notificationData)
+        }
+        
         completionHandler()
     }
 
@@ -374,6 +387,97 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         if let token = fcmToken {
             print("📱 Firebase registration token: \(token)")
             // Here you can send this token to your server
+        }
+    }
+
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                    fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        print("\n📱 Received remote notification")
+        
+        // Create and display the notification immediately
+        let content = UNMutableNotificationContent()
+        
+        // Try to get notification data from different possible locations
+        var notificationData: [String: Any]?
+        var title: String?
+        var body: String?
+        
+        // Extract notification data
+        if let aps = userInfo["aps"] as? [String: Any] {
+            if let alert = aps["alert"] as? [String: Any] {
+                title = alert["title"] as? String
+                body = alert["body"] as? String
+            } else if let alertString = aps["alert"] as? String {
+                body = alertString
+            }
+            notificationData = aps
+        }
+        
+        if title == nil, let notifData = userInfo["notificationData"] as? [String: Any] {
+            title = notifData["title"] as? String
+            body = notifData["body"] as? String
+            notificationData = notifData
+        }
+        
+        // Use fallback values if needed
+        content.title = title ?? userInfo["title"] as? String ?? "New Notification"
+        content.body = body ?? userInfo["body"] as? String ?? "You have a new notification"
+        content.sound = .default
+        content.userInfo = userInfo
+        
+        // Add the notification request
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: nil
+        )
+        
+        // Show the notification
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("❌ Error showing notification: \(error)")
+            } else {
+                print("✅ Notification scheduled successfully")
+            }
+        }
+        
+        // Store in Firestore
+        Task {
+            do {
+                let db = Firestore.firestore()
+                let notificationRef = db.collection("notificationHistory").document()
+                
+                var firestoreData: [String: Any] = [
+                    "timestamp": FieldValue.serverTimestamp(),
+                    "title": content.title,
+                    "body": content.body
+                ]
+                
+                // Add all available data from the notification
+                if let data = notificationData {
+                    for (key, value) in data {
+                        if key != "aps" && key != "alert" {
+                            firestoreData[key] = value
+                        }
+                    }
+                }
+                
+                // Add any additional data from userInfo
+                for (key, value) in userInfo {
+                    if let key = key as? String,
+                       key != "aps" && key != "notificationData" {
+                        firestoreData[key] = value
+                    }
+                }
+                
+                try await notificationRef.setData(firestoreData)
+                print("✅ Notification saved to history")
+                completionHandler(.newData)
+            } catch {
+                print("⚠️ Error saving notification: \(error)")
+                // Don't fail completely if we can't save to Firestore
+                completionHandler(.failed)
+            }
         }
     }
 } 

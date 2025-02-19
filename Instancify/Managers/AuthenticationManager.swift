@@ -9,7 +9,42 @@ class AuthenticationManager: ObservableObject {
     static let shared = AuthenticationManager()
     private let keychain = Keychain(service: "com.instancify.credentials")
     
-    @Published var selectedRegion: AWSRegion = .usEast1  // Default to US East (N. Virginia)
+    @Published var selectedRegion: AWSRegion = .usEast1 {
+        willSet {
+            print("\n🌎 AuthManager: Region changing from \(selectedRegion.rawValue) to \(newValue.rawValue)")
+        }
+        didSet {
+            if oldValue != selectedRegion {
+                print("🌎 AuthManager: Region changed, notifying observers")
+                // Post notification with new region value
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("RegionChanged"),
+                    object: selectedRegion.rawValue
+                )
+                
+                // Save to keychain
+                do {
+                    try keychain.set(selectedRegion.rawValue, key: "region")
+                    print("✅ Region saved to keychain: \(selectedRegion.rawValue)")
+                } catch {
+                    print("❌ Failed to save region to keychain: \(error)")
+                }
+                
+                // Update EC2Service configuration
+                Task { @MainActor in
+                    do {
+                        let credentials = try getAWSCredentials()
+                        EC2Service.shared.updateConfiguration(
+                            with: credentials,
+                            region: selectedRegion.rawValue
+                        )
+                    } catch {
+                        print("❌ Failed to update EC2Service configuration: \(error)")
+                    }
+                }
+            }
+        }
+    }
     @Published var isAuthenticated = false
     @Published private(set) var accessKeyId: String = ""
     @Published private(set) var secretAccessKey: String = ""
@@ -41,8 +76,9 @@ class AuthenticationManager: ObservableObject {
         )
     }
     
-    func signIn(accessKeyId: String, secretAccessKey: String) async throws {
-        print("🔐 AuthManager: Starting sign in process...")
+    func signIn(accessKeyId: String, secretAccessKey: String, region: AWSRegion) async throws {
+        print("\n🔐 AuthManager: Starting sign in process...")
+        print("🌎 Selected region: \(region.rawValue)")
         
         // Reset authentication state
         self.isAuthenticated = false
@@ -54,10 +90,35 @@ class AuthenticationManager: ObservableObject {
         )
         
         do {
-            // Update EC2Service configuration first
+            // Configure AWS services first
+            print("🔧 Configuring AWS services...")
+            
+            // Clean up any existing AWS configurations
+            AWSServiceManager.default().defaultServiceConfiguration = nil
+            AWSEC2.remove(forKey: "defaultKey")
+            
+            // Create credential provider
+            let credentialsProvider = AWSStaticCredentialsProvider(
+                accessKey: credentials.accessKeyId,
+                secretKey: credentials.secretAccessKey
+            )
+            
+            // Create service configuration
+            let configuration = AWSServiceConfiguration(
+                region: region.awsRegionType,
+                credentialsProvider: credentialsProvider
+            )!
+            
+            // Set default service configuration
+            AWSServiceManager.default().defaultServiceConfiguration = configuration
+            
+            // Register AWS services
+            AWSEC2.register(with: configuration, forKey: "defaultKey")
+            
+            // Update EC2Service configuration
             EC2Service.shared.updateConfiguration(
                 with: credentials,
-                region: selectedRegion.awsRegionType
+                region: region.rawValue
             )
             
             // Validate credentials
@@ -66,14 +127,19 @@ class AuthenticationManager: ObservableObject {
             // If validation succeeds, save credentials
             try keychain.set(credentials.accessKeyId, key: "accessKeyId")
             try keychain.set(credentials.secretAccessKey, key: "secretAccessKey")
-            try keychain.set(selectedRegion.rawValue, key: "region")
+            try keychain.set(region.rawValue, key: "region")
             
             // Update local state
             self.accessKeyId = credentials.accessKeyId
             self.secretAccessKey = credentials.secretAccessKey
+            self.selectedRegion = region  // This will trigger region change notification
             self.isAuthenticated = true
             
             print("🔐 AuthManager: ✅ Sign in successful")
+            print("🌎 Region configured: \(region.rawValue)")
+            
+            // Wait a moment for services to fully initialize
+            try await Task.sleep(nanoseconds: 1_000_000_000)  // 1 second delay
             
         } catch {
             print("🔐 AuthManager: ❌ Sign in failed: \(error.localizedDescription)")
@@ -116,7 +182,7 @@ class AuthenticationManager: ObservableObject {
             // Update EC2Service configuration
             EC2Service.shared.updateConfiguration(
                 with: credentials,
-                region: selectedRegion.awsRegionType
+                region: selectedRegion.rawValue
             )
             // Validate credentials with AWS
             try await EC2Service.shared.validateCredentials()
@@ -161,7 +227,7 @@ class AuthenticationManager: ObservableObject {
         // Update EC2Service configuration
         EC2Service.shared.updateConfiguration(
             with: credentials,
-            region: selectedRegion.awsRegionType
+            region: selectedRegion.rawValue
         )
         
         print("✅ AWS configured with credentials for region \(selectedRegion.rawValue)")

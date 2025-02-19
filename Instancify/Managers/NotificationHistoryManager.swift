@@ -1,25 +1,5 @@
 import Foundation
 
-struct NotificationHistoryItem: Codable, Identifiable {
-    let id = UUID()
-    let date: Date
-    let title: String
-    let message: String
-    let instanceId: String?
-    let threshold: Int?
-    let runtime: Int?
-    
-    // Alias for date to maintain compatibility
-    var timestamp: Date {
-        return date
-    }
-    
-    // Alias for message to maintain compatibility
-    var body: String {
-        return message
-    }
-}
-
 class NotificationHistoryManager {
     static let shared = NotificationHistoryManager()
     private let historyKey = "notificationHistory"
@@ -52,4 +32,4 @@ class NotificationHistoryManager {
             UserDefaults.standard.set(data, forKey: historyKey)
         }
     }
-} 
+}

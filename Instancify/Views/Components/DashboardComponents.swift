@@ -16,7 +16,7 @@ struct InstanceStatCard: View {
                     .foregroundColor(.secondary)
             }
             .font(.footnote)
-            
+             
             Text("\(count)")
                 .font(.title)
                 .fontWeight(.bold)
@@ -58,8 +58,7 @@ struct CostCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(color.opacity(0.1))
-        .cornerRadius(12)
+        .glassEffect()
     }
 }
 

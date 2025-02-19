@@ -24,10 +24,13 @@ class InstanceMonitoringService: ObservableObject {
     private var monitoringTask: Task<Void, Never>?
     private var instances: [EC2Instance] = []
     private var notifiedThresholds: [String: [String: Set<Int>]] = [:]
-    private var currentRegion: String = "us-east-1" // Default region
+    private var currentRegion: String
     private var isInitialized = false
     
     private init() {
+        // Initialize with the current region from AuthenticationManager
+        self.currentRegion = AuthenticationManager.shared.selectedRegion.rawValue
+        
         if let bundleId = Bundle.main.bundleIdentifier {
             let appGroupId = "group.\(bundleId)"
             defaults = UserDefaults(suiteName: appGroupId)
@@ -94,7 +97,15 @@ class InstanceMonitoringService: ObservableObject {
     
     @objc private func handleRegionChange(_ notification: Notification) {
         if let newRegion = notification.object as? String {
+            // Update current region
             currentRegion = newRegion
+            print("\n🌎 Region changed to: \(newRegion)")
+            
+            // Post notification for UI update
+            NotificationCenter.default.post(
+                name: NSNotification.Name("RegionUpdated"),
+                object: newRegion
+            )
             
             Task {
                 do {
@@ -112,7 +123,7 @@ class InstanceMonitoringService: ObservableObject {
                     // Update EC2Service configuration
                     EC2Service.shared.updateConfiguration(
                         with: credentials,
-                        region: authManager.selectedRegion.awsRegionType
+                        region: authManager.selectedRegion.rawValue
                     )
                     
                     print("✅ AWS credentials reconfigured for region: \(newRegion)")
@@ -121,19 +132,11 @@ class InstanceMonitoringService: ObservableObject {
                     try await checkAllRegions()
                     
                     // Restore alerts for this region if they were enabled
-                    if let defaults = self.defaults,
-                       defaults.bool(forKey: "runtimeAlerts_enabled_\(newRegion)") {
-                        print("🔄 Restoring alerts for region: \(newRegion)")
-                        Task {
-                            do {
-                                try await NotificationSettingsViewModel.shared.setRuntimeAlerts(enabled: true, region: newRegion)
-                            } catch {
-                                print("❌ Failed to restore alerts for region \(newRegion): \(error)")
-                            }
-                        }
+                    if notificationSettings.runtimeAlertsEnabled {
+                        try await startMonitoring()
                     }
                 } catch {
-                    print("❌ Failed to handle region change to \(newRegion): \(error)")
+                    print("❌ Failed to handle region change: \(error)")
                 }
             }
         }
@@ -169,6 +172,9 @@ class InstanceMonitoringService: ObservableObject {
         do {
             let credentials = try authManager.getAWSCredentials()
             
+            // Update current region from AuthenticationManager
+            self.currentRegion = authManager.selectedRegion.rawValue
+            
             // Configure AWS services with credentials
             try await AWSManager.shared.configure(
                 accessKey: credentials.accessKeyId,
@@ -179,7 +185,7 @@ class InstanceMonitoringService: ObservableObject {
             // Update EC2Service configuration
             EC2Service.shared.updateConfiguration(
                 with: credentials,
-                region: authManager.selectedRegion.awsRegionType
+                region: authManager.selectedRegion.rawValue
             )
             
             print("✅ AWS credentials configured for region: \(authManager.selectedRegion.rawValue)")
@@ -211,15 +217,16 @@ class InstanceMonitoringService: ObservableObject {
             if let savedCredentials = try? KeychainManager.shared.retrieveCredentials(),
                let savedRegion = try? KeychainManager.shared.getRegion() {
                 print("🔄 Attempting to recover using saved credentials")
+                let regionType = mapRegionToAWSType(savedRegion)
                 try await AWSManager.shared.configure(
                     accessKey: savedCredentials.accessKeyId,
                     secretKey: savedCredentials.secretAccessKey,
-                    region: mapRegionToAWSType(savedRegion)
+                    region: regionType
                 )
                 
                 EC2Service.shared.updateConfiguration(
                     with: savedCredentials,
-                    region: mapRegionToAWSType(savedRegion)
+                    region: savedRegion
                 )
                 
                 print("✅ Recovered using saved credentials")
@@ -486,7 +493,7 @@ class InstanceMonitoringService: ObservableObject {
         print("  • Instance: \(instance.name ?? "unnamed")")
         print("  • State: \(instance.state)")
         print("  • Launch Time: \(instance.launchTime?.description ?? "unknown")")
-        
+
         switch instance.state {
         case .running:
             print("✅ Instance is running, scheduling runtime alerts")
@@ -498,33 +505,65 @@ class InstanceMonitoringService: ObservableObject {
                 launchTime: instance.launchTime ?? Date()
             )
             
-            // Send state change notification
-            try await notificationManager.sendInstanceStateNotification(
-                instanceId: instance.id,
-                instanceName: instance.name,
-                state: instance.state
-            )
+        case .stopped, .stopping, .terminated, .shuttingDown:
+            print("\n🗑️ Instance is \(instance.state), cleaning up alerts")
+            // Clear alerts from Firestore
+            let db = Firestore.firestore()
+            let alertsRef = db.collection("scheduledAlerts")
             
-        case .stopped, .terminated:
-            print("🛑 Instance stopped/terminated, clearing notifications")
+            print("  • Querying alerts for instance \(instance.id)")
+            // Get all alerts for this instance
+            let alerts = try await alertsRef
+                .whereField("instanceID", isEqualTo: instance.id)
+                .whereField("region", isEqualTo: region)
+                .getDocuments()
+            
+            print("  • Found \(alerts.documents.count) alerts")
+            
+            if !alerts.isEmpty {
+                let batch = db.batch()
+                alerts.documents.forEach { doc in
+                    print("  • Deleting alert: \(doc.documentID)")
+                    batch.deleteDocument(doc.reference)
+                }
+                try await batch.commit()
+                print("✅ Successfully deleted \(alerts.documents.count) alerts")
+                
+                // Add cleanup notification to history
+                let historyRef = db.collection("notificationHistory").document()
+                let notificationData: [String: Any] = [
+                    "type": "alert_cleanup",
+                    "title": "Alerts Cancelled",
+                    "body": "All runtime alerts for \(instance.name ?? instance.id) have been cancelled because the instance was \(instance.state.rawValue)",
+                    "instanceId": instance.id,
+                    "instanceName": instance.name ?? instance.id,
+                    "region": region,
+                    "timestamp": FieldValue.serverTimestamp(),
+                    "time": Date().ISO8601Format(),
+                    "status": "completed",
+                    "createdAt": FieldValue.serverTimestamp(),
+                    "formattedTime": DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .short)
+                ]
+                try await historyRef.setData(notificationData)
+                print("✅ Added cleanup notification to history")
+            } else {
+                print("ℹ️ No alerts found to delete")
+            }
+            
+            // Clear local notifications
+            print("  • Clearing local notifications")
             scheduledNotifications.clearNotifications(instanceId: instance.id, region: region)
-            
-            // Send state change notification
-            try await notificationManager.sendInstanceStateNotification(
-                instanceId: instance.id,
-                instanceName: instance.name,
-                state: instance.state
-            )
             
         default:
             print("⏳ Instance in transition state: \(instance.state)")
-            // Send state change notification for transition states
-            try await notificationManager.sendInstanceStateNotification(
-                instanceId: instance.id,
-                instanceName: instance.name,
-                state: instance.state
-            )
         }
+        
+        // Send state change notification
+        try await notificationManager.sendInstanceStateNotification(
+            instanceId: instance.id,
+            instanceName: instance.name,
+            state: instance.state
+        )
     }
     
     private func checkAndCleanupAlerts() async throws {

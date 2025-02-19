@@ -19,6 +19,7 @@ struct InstancifyApp: App {
     @StateObject private var appLockService = AppLockService.shared
     @State private var showingActionConfirmation = false
     @State private var pendingAction: (action: String, instanceId: String)?
+    @State private var pendingWidgetURL: URL?
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var instanceMonitoringService = InstanceMonitoringService.shared
     
@@ -66,6 +67,9 @@ struct InstancifyApp: App {
                             
                             // Initial instance fetch
                             try await ec2Service.fetchInstances()
+                            
+                            // Restore runtime alerts state
+                            await NotificationSettingsViewModel.shared.handleAppLaunch()
                         } catch {
                             print("❌ Failed to configure AWS services: \(error)")
                         }
@@ -78,6 +82,9 @@ struct InstancifyApp: App {
                                 try await authManager.configureAWSServices()
                                 print("✅ AWS services configured after authentication")
                                 try await ec2Service.fetchInstances()
+                                
+                                // Restore runtime alerts state after authentication
+                                await NotificationSettingsViewModel.shared.handleAppLaunch()
                             } catch {
                                 print("❌ Failed to configure AWS services: \(error)")
                             }
@@ -105,10 +112,21 @@ struct InstancifyApp: App {
                                 print("❌ Failed to refresh instances or start monitoring: \(error)")
                             }
                         }
+                    } else if newPhase == .background {
+                        // Handle app going to background
+                        NotificationSettingsViewModel.shared.handleAppTermination()
                     }
                 }
                 .onChange(of: appearanceViewModel.currentAccentColor) { oldColor, newColor in
                     UIView.appearance().tintColor = UIColor(newColor)
+                }
+                .onChange(of: appLockService.isLocked) { wasLocked, isLocked in
+                    if !isLocked, let url = pendingWidgetURL {
+                        // App was unlocked and we have a pending widget URL
+                        print("🔓 App unlocked. Processing pending widget action")
+                        pendingWidgetURL = nil
+                        handleWidgetURL(url)
+                    }
                 }
                 .onOpenURL { url in
                     print("🔗 URL opened: \(url)")
@@ -171,6 +189,18 @@ struct InstancifyApp: App {
         
         print("📱 Widget action received: \(action) for instance \(instanceId)")
         
+        // If app is locked, store the URL and wait for unlock
+        if appLockService.isPasswordSet() && appLockService.isLocked {
+            print("🔒 App is locked. Storing URL for after unlock")
+            pendingWidgetURL = url
+            return
+        }
+        
+        // Otherwise, proceed with the action
+        processPendingWidgetAction(action: action, instanceId: instanceId)
+    }
+    
+    private func processPendingWidgetAction(action: String, instanceId: String) {
         // Fetch instances first to ensure we have the latest data
         Task {
             do {

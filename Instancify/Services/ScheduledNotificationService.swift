@@ -28,7 +28,7 @@ class ScheduledNotificationService: ObservableObject {
         }
         
         print("\n🔔 Starting runtime notification scheduling for instance \(instanceId)")
-        print("  • Instance Name: \(instanceName ?? "unnamed")")
+        print("  • Instance Name: \(instanceName ?? instanceId)")
         print("  • Region: \(region)")
         print("  • Launch Time: \(launchTime)")
         
@@ -48,28 +48,29 @@ class ScheduledNotificationService: ObservableObject {
         
         // Filter alerts that apply to this instance
         let applicableAlerts = allAlerts.filter { alert in
-            alert.enabled && (alert.regions.isEmpty || alert.regions.contains(region))
-        }
-        
-        print("\n📊 Alert Summary:")
-        print("  • Total active alerts: \(applicableAlerts.count)")
-        print("  • Global alerts: \(applicableAlerts.filter { $0.regions.isEmpty }.count)")
-        print("  • Region-specific alerts: \(applicableAlerts.filter { !$0.regions.isEmpty }.count)")
-        
-        // Filter and prepare alerts for batch processing
-        var alertsToSchedule: [RuntimeAlert] = []
-        
-        // Process alerts in order: global alerts first, then region-specific
-        let sortedAlerts = applicableAlerts.sorted { a1, a2 in
-            // If one is global and the other isn't, global comes first
-            if a1.regions.isEmpty != a2.regions.isEmpty {
-                return a1.regions.isEmpty
+            // Check if alert is enabled
+            guard alert.enabled else { return false }
+            
+            // Check if alert applies to this region
+            if !alert.regions.isEmpty && !alert.regions.contains(region) {
+                return false
             }
-            // Otherwise sort by threshold
-            let t1 = a1.hours * 60 + a1.minutes
-            let t2 = a2.hours * 60 + a2.minutes
-            return t1 < t2
+            
+            // Calculate threshold in minutes
+            let threshold = alert.hours * 60 + alert.minutes
+            
+            // Only include alerts where threshold is greater than current runtime
+            return threshold > currentRuntime
         }
+        
+        // Sort alerts by threshold
+        let sortedAlerts = applicableAlerts.sorted { a, b in
+            let aThreshold = a.hours * 60 + a.minutes
+            let bThreshold = b.hours * 60 + b.minutes
+            return aThreshold < bThreshold
+        }
+        
+        var alertsToSchedule: [RuntimeAlert] = []
         
         for alert in sortedAlerts {
             let alertThreshold = alert.hours * 60 + alert.minutes
@@ -77,15 +78,16 @@ class ScheduledNotificationService: ObservableObject {
             print("  • Threshold: \(alert.hours)h \(alert.minutes)m")
             print("  • Is Global: \(alert.regions.isEmpty)")
             
-            if currentRuntime >= alertThreshold {
-                print("  ⏭️ Skipping - runtime exceeds threshold")
+            // Calculate trigger date based on launch time
+            let triggerDate = launchTime.addingTimeInterval(TimeInterval(alertThreshold * 60))
+            
+            // Skip if trigger time has already passed
+            if triggerDate <= Date() {
+                print("  ⏭️ Skipping - trigger time has passed")
                 continue
             }
             
-            // Calculate trigger date
-            let minutesUntilAlert = alertThreshold - currentRuntime
-            let triggerDate = Date().addingTimeInterval(TimeInterval(minutesUntilAlert * 60))
-            
+            let minutesUntilAlert = Int(triggerDate.timeIntervalSince(Date()) / 60)
             print("  • Will trigger in: \(minutesUntilAlert) minutes")
             print("  • Scheduled for: \(triggerDate)")
             

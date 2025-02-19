@@ -4,6 +4,9 @@ import AWSCore
 import AWSCloudWatch
 import UserNotifications
 import SwiftUI
+import FirebaseAuth
+import FirebaseFirestore
+import FirebaseFunctions
 
 @MainActor
 class EC2Service: ObservableObject {
@@ -11,7 +14,29 @@ class EC2Service: ObservableObject {
     private var ec2: AWSEC2
     private var currentCredentials: AWSCredentials?
     private var instanceNames: [String: String] = [:]
+    private let logger = Functions.functions().httpsCallable("logger")
+    private let runtimeAlertManager = FirebaseNotificationService.shared
     @Published private(set) var instances: [EC2Instance] = []
+    @Published private(set) var currentRegion: String = AuthenticationManager.shared.selectedRegion.rawValue {
+        willSet {
+            if newValue != currentRegion {
+                print("\n🌎 EC2Service: Region changing from \(currentRegion) to \(newValue)")
+                // Clear state before region change
+                instances = []
+                instanceNames.removeAll()
+                autoStopConfigs.removeAll()
+                
+                // Post notification for region change
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("RegionChanged"),
+                    object: newValue
+                )
+                
+                // Update widget's current region
+                WidgetService.shared.updateCurrentRegion(newValue)
+            }
+        }
+    }
     
     private var costUpdateTimer: Timer?
     
@@ -63,13 +88,14 @@ class EC2Service: ObservableObject {
     }
     private var autoStopUpdateTimer: Timer?
     
-    private var currentRegion: String = "us-west-2" // Default region
-    
     #if DEBUG
     private var isPreview: Bool {
         ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
     }
     #endif
+    
+    // Add observer for region changes from AuthenticationManager
+    private var regionObserver: NSObjectProtocol?
     
     private func setupFirstLaunchDate() {
         if UserDefaults.standard.object(forKey: "appFirstLaunchDate") == nil {
@@ -80,17 +106,39 @@ class EC2Service: ObservableObject {
     private init() {
         print("\n🔧 Initializing EC2Service...")
         
-        // Initialize ec2 with a default value first
+        // Initialize ec2 with default configuration first
         let defaultConfig = AWSServiceConfiguration(
-            region: .USEast1,
+            region: AuthenticationManager.shared.selectedRegion.awsRegionType,
             credentialsProvider: AWSAnonymousCredentialsProvider()
         )!
         AWSServiceManager.default().defaultServiceConfiguration = defaultConfig
         AWSEC2.register(with: defaultConfig, forKey: "DefaultKey")
         self.ec2 = AWSEC2(forKey: "DefaultKey")
         
+        print("✅ Initialized with region from AuthManager: \(self.currentRegion)")
+        
+        // Add observer for region changes
+        regionObserver = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("RegionChanged"),
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            if let newRegion = notification.object as? String {
+                Task { @MainActor [weak self] in
+                    guard let self = self else { return }
+                    if self.currentRegion != newRegion {
+                        print("🌎 EC2Service: Received region change notification: \(newRegion)")
+                        // Update configuration with new region
+                        if let credentials = try? AuthenticationManager.shared.getAWSCredentials() {
+                            self.updateConfiguration(with: credentials, region: newRegion)
+                        }
+                    }
+                }
+            }
+        }
+        
         #if DEBUG
-        if isPreview {
+        if ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1" {
             print("🔧 EC2Service: Running in preview mode")
             // Initialize with mock data for preview
             self.instances = [
@@ -109,14 +157,14 @@ class EC2Service: ObservableObject {
                     runtime: 0,
                     currentCost: 0.0,
                     projectedDailyCost: 0.2784,
-                    region: "us-east-1"
+                    region: self.currentRegion
                 )
             ]
             return
         }
         #endif
         
-        // Initialize UserDefaults with app group first
+        // Initialize UserDefaults
         if let bundleId = Bundle.main.bundleIdentifier {
             let appGroupId = "group.\(bundleId)"
             defaults = UserDefaults(suiteName: "group.tech.md.Instancify") ?? UserDefaults.standard
@@ -126,11 +174,11 @@ class EC2Service: ObservableObject {
             print("❌ Failed to get bundle identifier")
         }
         
-        // Configure AWS with stored credentials
+        // Configure AWS with stored credentials asynchronously
         Task {
             do {
                 let credentials = try KeychainManager.shared.retrieveCredentials()
-                let region = try KeychainManager.shared.getRegion()
+                let region = AuthenticationManager.shared.selectedRegion.rawValue
                 
                 let credentialsProvider = AWSStaticCredentialsProvider(
                     accessKey: credentials.accessKeyId,
@@ -138,7 +186,7 @@ class EC2Service: ObservableObject {
                 )
                 
                 let configuration = AWSServiceConfiguration(
-                    region: mapRegionToAWSType(region),
+                    region: AuthenticationManager.shared.selectedRegion.awsRegionType,
                     credentialsProvider: credentialsProvider
                 )!
                 
@@ -149,7 +197,7 @@ class EC2Service: ObservableObject {
                 AWSEC2.register(with: configuration, forKey: "DefaultKey")
                 self.ec2 = AWSEC2(forKey: "DefaultKey")
                 
-                print("✅ AWS configured with stored credentials")
+                print("✅ AWS configured with stored credentials for region: \(region)")
             } catch {
                 print("❌ Failed to configure AWS: \(error)")
             }
@@ -161,27 +209,73 @@ class EC2Service: ObservableObject {
         print("✅ EC2Service initialization complete")
     }
     
-    func updateConfiguration(with credentials: AWSCredentials, region: AWSRegionType) {
-        print("\n🌎 EC2Service: Updating configuration for region: \(region.rawValue)")
+    func updateConfiguration(with credentials: AWSCredentials, region: String) {
+        print("\n🌎 EC2Service: Updating configuration for region: \(region)")
         
-        let credentialsProvider = AWSStaticCredentialsProvider(accessKey: credentials.accessKeyId, secretKey: credentials.secretAccessKey)
+        // Update the current region first
+        currentRegion = region
+        
+        // Clear all existing AWS configurations
+        AWSEC2.remove(forKey: "DefaultKey")
+        
+        let credentialsProvider = AWSStaticCredentialsProvider(
+            accessKey: credentials.accessKeyId,
+            secretKey: credentials.secretAccessKey
+        )
+        
         let configuration = AWSServiceConfiguration(
-            region: region,
+            region: mapRegionToAWSType(region),
             credentialsProvider: credentialsProvider
         )!
         
-        // Set the default configuration first
+        // Set the default configuration
         AWSServiceManager.default().defaultServiceConfiguration = configuration
         
-        // Then register EC2 service
+        // Register EC2 service with new configuration
         AWSEC2.register(with: configuration, forKey: "DefaultKey")
         self.ec2 = AWSEC2(forKey: "DefaultKey")
         
-        print("✅ EC2Service configuration updated for region: \(region.rawValue)")
+        print("✅ EC2Service configuration updated for region: \(region)")
+        
+        // Clear all cached data
+        instances = []
+        instanceNames.removeAll()
+        autoStopConfigs.removeAll()
+        
+        // Force a UI update
+        objectWillChange.send()
     }
     
     func fetchInstances() async throws -> [EC2Instance] {
-        print("\n🔄 Fetching instances...")
+        print("\n🔍 Fetching instances for region: \(currentRegion)")
+        
+        // Validate that we're using the correct region configuration
+        if let configRegion = (ec2.configuration.endpoint as AWSEndpoint?)?.regionName,
+           configRegion != currentRegion {
+            print("⚠️ Region mismatch detected. Reconfiguring AWS...")
+            print("  • Current config region: \(configRegion)")
+            print("  • Expected region: \(currentRegion)")
+            
+            // Get current credentials
+            let credentials = try AuthenticationManager.shared.getAWSCredentials()
+            
+            // Create new configuration with correct region
+            let credentialsProvider = AWSStaticCredentialsProvider(
+                accessKey: credentials.accessKeyId,
+                secretKey: credentials.secretAccessKey
+            )
+            
+            let configuration = AWSServiceConfiguration(
+                region: mapRegionToAWSType(currentRegion),
+                credentialsProvider: credentialsProvider
+            )!
+            
+            // Update EC2 configuration
+            AWSServiceManager.default().defaultServiceConfiguration = configuration
+            AWSEC2.register(with: configuration, forKey: "DefaultKey")
+            self.ec2 = AWSEC2(forKey: "DefaultKey")
+            print("✅ AWS reconfigured for region: \(currentRegion)")
+        }
         
         let request = AWSEC2DescribeInstancesRequest()!
         
@@ -190,11 +284,9 @@ class EC2Service: ObservableObject {
             var instances: [EC2Instance] = []
             
             guard let reservations = result.reservations else {
-                print("ℹ️ No instances found")
+                print("ℹ️ No instances found in region \(currentRegion)")
                 // Clear widget data when no instances are found
-                if let region = (ec2.configuration.endpoint as AWSEndpoint?)?.regionName {
-                    WidgetService.shared.clearWidgetData(for: region)
-                }
+                WidgetService.shared.clearWidgetData(for: currentRegion)
                 return []
             }
             
@@ -202,7 +294,7 @@ class EC2Service: ObservableObject {
                 guard let awsInstances = reservation.instances else { continue }
                 
                 for awsInstance in awsInstances {
-                    if let instance = createInstance(from: awsInstance, region: (ec2.configuration.endpoint as AWSEndpoint?)?.regionName ?? "unknown") {
+                    if let instance = createInstance(from: awsInstance, region: currentRegion) {
                         instances.append(instance)
                     }
                 }
@@ -215,11 +307,9 @@ class EC2Service: ObservableObject {
             self.instances = instances
             
             // Batch update widget data
-            if let region = (ec2.configuration.endpoint as AWSEndpoint?)?.regionName {
-                WidgetService.shared.updateWidgetDataBatch(instances, for: region)
-            }
+            WidgetService.shared.updateWidgetDataBatch(instances, for: currentRegion)
             
-            print("✅ Found \(instances.count) instances")
+            print("✅ Found \(instances.count) instances in region \(currentRegion)")
             return instances
             
         } catch {
@@ -388,30 +478,49 @@ class EC2Service: ObservableObject {
     }
     
     func stopInstance(_ instanceId: String, isAutoStop: Bool = false) async throws {
+        print("\n🛑 Stopping instance \(instanceId)")
+        
+        // Clear runtime alerts before attempting to stop the instance
+        await clearRuntimeAlerts(for: instanceId)
+        
         let request = AWSEC2StopInstancesRequest()!
         request.instanceIds = [instanceId]
         
-        return try await withCheckedThrowingContinuation { continuation in
-            ec2.stopInstances(request) { response, error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                    return
-                }
+        do {
+            _ = try await ec2.stopInstances(request)
+            
+            // Get instance details for notification
+            if let instance = try await getInstanceDetails(instanceId, region: currentRegion) {
+                // Clear runtime alerts again after the instance is stopped to ensure they're gone
+                await clearRuntimeAlerts(for: instanceId)
                 
-                Task {
-                    // Get instance details for notification
-                    if let instance = try? await self.getInstanceDetails(instanceId) {
-                        try? await FirebaseNotificationService.shared.sendInstanceStateNotification(
-                            instanceId: instance.id,
-                            instanceName: instance.name ?? instance.id,
-                            oldState: instance.state.rawValue,
-                            newState: "stopped"
-                        )
-                    }
-                }
+                // Then send the state change notification
+                try await FirebaseNotificationService.shared.sendInstanceStateNotification(
+                    instanceId: instance.id,
+                    instanceName: instance.name ?? instance.id,
+                    oldState: instance.state.rawValue,
+                    newState: "stopped"
+                )
                 
-                continuation.resume()
+                // Log the stop operation
+                try? await logger.call([
+                    "message": "✅ Successfully stopped instance \(instanceId) and cleared all runtime alerts",
+                    "level": "info"
+                ])
+                
+                // Notify that runtime alerts have been cleared
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("RuntimeAlertsCleared"),
+                    object: instanceId
+                )
             }
+        } catch {
+            // Log the error
+            try? await logger.call([
+                "message": "❌ Failed to stop instance \(instanceId): \(error)",
+                "level": "error"
+            ])
+            throw EC2ServiceError.instanceOperationFailed
         }
     }
     
@@ -557,13 +666,9 @@ class EC2Service: ObservableObject {
     }
     
     func handleEnterBackground() {
-        print("📱 App entering background")
-        // Invalidate all timers but keep settings
-        for (_, timer) in autoStopTimers {
-            timer.invalidate()
-        }
-        autoStopTimers.removeAll()
-        
+        print("\n📱 App entering background")
+        // Don't invalidate auto-stop timers in background
+        // Only invalidate UI update timers
         for (_, timer) in countdownTimers {
             timer.invalidate()
         }
@@ -571,14 +676,33 @@ class EC2Service: ObservableObject {
         
         autoStopUpdateTimer?.invalidate()
         autoStopUpdateTimer = nil
+        
+        // Ensure all auto-stop configurations are properly scheduled
+        Task {
+            await checkAutoStopConfigurations()
+        }
+        
+        print("✅ Background state handled")
     }
     
     func handleEnterForeground() {
-        print("📱 App entering foreground")
+        print("\n📱 App entering foreground")
         Task { @MainActor [weak self] in
-            try? await self?.refreshInstances()
+            do {
+                // Refresh instances first
+                try await self?.refreshInstances()
+                
+                // Check if any instances should have been stopped while in background
+                await self?.checkAutoStopConfigurations()
+                
+                // Restore timers and monitoring
             await self?.restoreAutoStopTimers()
             self?.startAutoStopMonitoring()
+                
+                print("✅ Foreground state restored")
+            } catch {
+                print("❌ Error restoring foreground state: \(error)")
+            }
         }
     }
     
@@ -731,7 +855,7 @@ class EC2Service: ObservableObject {
         }
         
         let hours = Int(floor(runtime / 3600))
-        let minutes = Int(floor(runtime.truncatingRemainder(dividingBy: 3600) / 60))
+        let minutes = Int(floor(Double(runtime).truncatingRemainder(dividingBy: 3600) / 60))
         let displayString = hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m"
         
         return (runtime, displayString)
@@ -1572,7 +1696,21 @@ class EC2Service: ObservableObject {
             instances[index] = updatedInstance
             
             if oldState != state {
-                handleInstanceStateChange(updatedInstance, region: instance.region)
+                Task {
+                    do {
+                        try await FirebaseNotificationService.shared.handleInstanceStateChange(
+                            instanceId: instance.id,
+                            instanceName: instance.name ?? instance.id,
+                            region: instance.region,
+                            oldState: oldState.rawValue,
+                            newState: state.rawValue,
+                            launchTime: instance.launchTime
+                        )
+                        handleInstanceStateChange(updatedInstance, region: instance.region)
+                    } catch {
+                        print("❌ Failed to handle instance state change: \(error)")
+                    }
+                }
             }
         }
     }
@@ -1641,6 +1779,149 @@ class EC2Service: ObservableObject {
             throw error
         }
     }
+    
+    func handleInstanceStateChange(instanceId: String, region: String, state: InstanceState, launchTime: Date) async throws {
+        // Ensure region is properly formatted
+        let formattedRegion = region.lowercased().replacingOccurrences(of: " ", with: "-")
+        
+        // Convert launchTime to proper format
+        let dateFormatter = ISO8601DateFormatter()
+        let formattedLaunchTime = dateFormatter.string(from: launchTime)
+        
+        // Refresh ID token
+        guard let idToken = try await refreshIDToken() else {
+            throw EC2ServiceError.tokenRefreshFailed
+        }
+        
+        // Prepare data for Firebase
+        let data: [String: Any] = [
+            "instanceId": instanceId,
+            "region": formattedRegion,
+            "state": state.rawValue,
+            "launchTime": formattedLaunchTime
+        ]
+        
+        // Send to Firebase
+        try await sendToFirebase(data: data, idToken: idToken)
+        
+        // Handle state change
+        switch state {
+        case .stopped:
+            try await stopInstance(instanceId)
+        case .running:
+            try await startInstance(instanceId)
+        case .terminated:
+            try await terminateInstance(instanceId)
+        case .pending, .shuttingDown, .stopping, .unknown:
+            break // No specific action needed for these states
+        @unknown default:
+            break
+        }
+        
+        // Add this block to handle stopped state
+        if state == .stopped {
+            // Clear runtime alerts for this instance
+            await clearRuntimeAlerts(for: instanceId)
+            try? await logger.call([
+                "message": "🗑️ Cleared runtime alerts for stopped instance: \(instanceId)",
+                "level": "info"
+            ])
+        }
+    }
+    
+    private func refreshIDToken() async throws -> String? {
+        guard let user = Auth.auth().currentUser else { return nil }
+        do {
+            let token = try await user.getIDToken()
+            return token
+        } catch {
+            throw EC2ServiceError.tokenRefreshFailed
+        }
+    }
+    
+    private func sendToFirebase(data: [String: Any], idToken: String) async throws {
+        let db = Firestore.firestore()
+        let document = db.collection("instanceStateChanges").document()
+        
+        do {
+            try await document.setData(data)
+        } catch {
+            throw EC2ServiceError.firebaseSendFailed
+        }
+    }
+    
+    private func clearRuntimeAlerts(for instanceId: String) async {
+        print("\n🧹 Clearing runtime alerts for instance \(instanceId)")
+        
+        do {
+            // Get instance region
+            guard let instance = instances.first(where: { $0.id == instanceId }) else {
+                print("❌ Instance not found for clearing alerts: \(instanceId)")
+                return
+            }
+            
+            print("  • Found instance in region: \(instance.region)")
+            
+            // Clear all alerts for this instance in a single operation
+            try await runtimeAlertManager.clearInstanceAlerts(instanceId: instanceId, region: instance.region)
+            
+            // Clear auto-stop settings
+            AutoStopSettingsService.shared.clearSettings(for: instanceId)
+            print("  • Cleared auto-stop settings")
+            
+            // Remove from autoStopConfigs
+            autoStopConfigs.removeValue(forKey: instanceId)
+            print("  • Removed from auto-stop configs")
+            
+            // Clear notifications
+            await clearNotifications(for: instanceId)
+            print("  • Cleared notifications")
+            
+            // Update instance state if needed
+            if let index = instances.firstIndex(where: { $0.id == instanceId }) {
+                let updatedInstance = instances[index]
+                instances[index] = EC2Instance(
+                    id: updatedInstance.id,
+                    instanceType: updatedInstance.instanceType,
+                    state: updatedInstance.state,
+                    name: updatedInstance.name,
+                    launchTime: updatedInstance.launchTime,
+                    publicIP: updatedInstance.publicIP,
+                    privateIP: updatedInstance.privateIP,
+                    autoStopEnabled: false,
+                    countdown: nil,
+                    stateTransitionTime: updatedInstance.stateTransitionTime,
+                    hourlyRate: updatedInstance.hourlyRate,
+                    runtime: updatedInstance.runtime,
+                    currentCost: updatedInstance.currentCost,
+                    projectedDailyCost: updatedInstance.projectedDailyCost,
+                    region: updatedInstance.region
+                )
+                print("  • Updated instance state")
+            }
+            
+            // Log success using Firebase Functions
+            try await logger.call([
+                "message": "✅ Successfully cleared all runtime alerts and configurations for instance \(instanceId)",
+                "level": "info"
+            ])
+            
+            // Notify that runtime alerts have been cleared
+            NotificationCenter.default.post(
+                name: NSNotification.Name("RuntimeAlertsCleared"),
+                object: instanceId
+            )
+            
+            print("✅ Successfully cleared all runtime alerts and related configurations")
+        } catch {
+            print("❌ Failed to clear runtime alerts for instance \(instanceId): \(error)")
+            // Log error using Firebase Functions
+            try? await logger.call([
+                "message": "❌ Failed to clear runtime alerts for instance \(instanceId): \(error)",
+                "level": "error"
+            ])
+        }
+    }
 }
 
 // Add this computed property to EC2Instance
@@ -1650,4 +1931,11 @@ extension EC2Instance {
         let minutes = Int(floor(Double(runtime).truncatingRemainder(dividingBy: 3600) / 60))
         return hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m"
     }
+}
+
+// Add this enum at the top of the file, before the EC2Service class
+enum EC2ServiceError: Error {
+    case tokenRefreshFailed
+    case firebaseSendFailed
+    case instanceOperationFailed
 }

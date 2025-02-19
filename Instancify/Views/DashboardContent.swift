@@ -39,9 +39,11 @@ struct DashboardContent: View {
                 }
             
             if viewModel.isLoading {
-                Color.black.opacity(0.2)
+                Color.black
+                    .opacity(0.4)
                     .ignoresSafeArea()
                     .transition(.opacity)
+                    .zIndex(1)
                 
                 VStack(spacing: 12) {
                     Image(systemName: viewModel.isRegionSwitching ? "globe.americas.fill" : "arrow.clockwise")
@@ -62,6 +64,7 @@ struct DashboardContent: View {
                 .cornerRadius(12)
                 .shadow(radius: 20, y: 10)
                 .transition(.scale.combined(with: .opacity))
+                .zIndex(2)
             }
         }
         .animation(.spring(duration: 0.3), value: viewModel.isLoading)
@@ -100,7 +103,6 @@ struct DashboardContent: View {
                     // Cost Overview Card
                     if let metrics = viewModel.costMetrics {
                         CostOverviewSection(viewModel: viewModel)
-                            .glassEffect()
                             .padding(.horizontal)
                     }
                     
